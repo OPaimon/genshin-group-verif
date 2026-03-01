@@ -1,0 +1,18 @@
+{
+  "name": "genshin-group-verif",
+  "sources": {
+    "dir": "src",
+    "subdirs": true
+  },
+  "package-specs": {
+    "module": "esmodule",
+    "in-source": true
+  },
+  "suffix": ".res.mjs",
+  "dependencies": [],
+  "compiler-flags": [],
+  "gentypeconfig": {
+    "generatedFileExtension": ".gen.tsx",
+    "module": "esmodule"
+  }
+}

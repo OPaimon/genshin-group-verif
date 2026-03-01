@@ -7,3 +7,7 @@ dist/
 *.log
 *.tsbuildinfo
 .env
+/lib/
+.bsb.lock
+*.res.mjs
+*.gen.tsx

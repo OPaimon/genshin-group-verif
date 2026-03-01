@@ -1,30 +1,43 @@
 {
-    "name": "genshin-group-verif",
-    "type": "module",
-    "version": "0.0.1",
-    "packageManager": "pnpm@10.17.1",
-    "license": "MIT",
-    "scripts": {
-        "lint": "eslint .",
-        "lint:fix": "eslint --fix .",
-        "dev": "dotenv tsx watch ./src/main.ts",
-        "start": "tsx ./src/main.ts"
-    },
-    "dependencies": {
-        "@mtcute/dispatcher": "^0.27.9",
-        "@mtcute/node": "^0.27.9",
-        "dotenv-cli": "^11.0.0",
-        "tsx": "^4.21.0",
-        "zod": "^4.3.6"
-    },
-    "devDependencies": {
-        "@antfu/eslint-config": "^7.4.3",
-        "@types/node": "^25.2.3",
-        "typescript": "^5.9.3"
-    },
-    "pnpm": {
-        "onlyBuiltDependencies": [
-            "better-sqlite3"
-        ]
-    }
+  "name": "genshin-group-verif",
+  "type": "module",
+  "version": "0.0.1",
+  "packageManager": "pnpm@10.17.1",
+  "license": "MIT",
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "dev": "dotenv tsx watch ./src/main.ts",
+    "dev:debug": "dotenv -- node --inspect=9229 --enable-source-maps --import tsx ./src/main.ts",
+    "start": "tsx --env-file=.env ./src/main.ts",
+    "build": "node build.mjs",
+    "start:prod": "node --enable-source-maps dist/main.mjs",
+    "res:build": "rescript",
+    "res:clean": "rescript clean",
+    "res:dev": "rescript watch",
+    "test": "rescript && node --test src/FlowTest.res.mjs"
+  },
+  "dependencies": {
+    "@mtcute/dispatcher": "^0.27.9",
+    "@mtcute/html-parser": "^0.28.1",
+    "@mtcute/node": "^0.27.9",
+    "@mtcute/wasm": "^0.27.8",
+    "@rescript/runtime": "^12.1.0",
+    "better-sqlite3": "^12.6.2",
+    "dotenv-cli": "^11.0.0",
+    "rescript": "12.1.0",
+    "tsx": "^4.21.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^7.4.3",
+    "@types/node": "^25.2.3",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  }
 }

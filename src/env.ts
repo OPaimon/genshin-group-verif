@@ -1,13 +1,11 @@
-import { z } from 'zod'
+const { API_ID, API_HASH, BOT_TOKEN } = process.env;
 
-const r = z.object({
-    API_ID: z.coerce.number(),
-    API_HASH: z.string(),
-    BOT_TOKEN: z.string(),
-}).safeParse(process.env)
-
-if (!r.success) {
-    throw new Error(`Invalid env:\n${z.prettifyError(r.error)}`)
+if (!API_ID || !API_HASH || !BOT_TOKEN || isNaN(Number(API_ID))) {
+    throw new Error("Invalid env: API_ID, API_HASH, and BOT_TOKEN are required.");
 }
 
-export const env = r.data
+export const env = {
+    API_ID: Number(API_ID),
+    API_HASH,
+    BOT_TOKEN,
+};
