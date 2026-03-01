@@ -24,6 +24,8 @@ import type {
     session,
 } from './Domain.gen.js'
 
+import { env } from './env.js'
+
 // ════════════════════════════════════════════════════════════════
 // Runtime management
 // ════════════════════════════════════════════════════════════════
@@ -254,6 +256,12 @@ export const interaction_logActivity = async (
 ): Promise<void> => {
     const ts = new Date().toISOString()
     const tag = formatLogKind(kind)
+    const user = await tg().getUser(userId as number)
+    const chat = await tg().getChat(chatId as number)
+    const text = html`#${tag} <br><b>群:</b> ${'title' in chat ? chat.title : String(chatId)} <br>群ID: #GID${-chatId} <br><b>用户:</b> <a href="tg://user?id=${user.id}">${user.firstName}</a> <br>用户ID: #UID${user.id} <br><b>时间:</b> ${ts}`
+    tg().sendText(env.LOG_PEER, text, { disableWebPreview: true }).catch(err => {
+        console.error('[logActivity] Failed to send log message:', err)
+    })
     console.log(`[Verification] ${ts} kind=${tag} chat=${chatId as number} user=${userId as number}`)
 }
 
