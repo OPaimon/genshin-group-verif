@@ -11,4 +11,3 @@ cp .env.example .env
 pnpm start
 ```
 
-*generated with @mtcute/create-bot*

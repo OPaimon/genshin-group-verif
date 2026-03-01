@@ -76,7 +76,7 @@ export const interaction_presentChallenge = async (
 ): Promise<Message_location<any>> => {
     const user = await tg().getUser(userId as number)
 
-    const content = html`<b>入群验证</b>\n旅行者 <a href="tg://user?id=${user.id}">${user.firstName}</a> 你好\n欢迎加入本群！请完成以下问题验证：\n问题: ${question}\n请在 3 分钟内点击正确答案完成验证。`
+    const content = html`<b>入群验证</b><br>旅行者 <a href="tg://user?id=${user.id}">${user.firstName}</a> 你好<br>欢迎加入本群！请完成以下问题验证：<br>问题: ${question}<br>请在 1 分钟内点击正确答案完成验证。`
 
     // Each option gets its own row with a callback button.
     // The callback data is the token (UUID), which is looked up in the token index.
