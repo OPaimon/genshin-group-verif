@@ -220,7 +220,11 @@ export const interaction_enforceDecision = async (
         else if (dec === 'Punish_soft') {
             if (ctx === 'In_group') {
                 // Kick: ban then immediately unban
-                await tg().kickChatMember({ chatId: chat, userId: user })
+                await tg().banChatMember({ 
+                    chatId: chat,
+                    participantId: user,
+                    untilDate: Date.now() + 60_000 
+                })
             }
             else {
                 // ctx === 'Join_request': decline
