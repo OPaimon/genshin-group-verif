@@ -8,6 +8,7 @@ import { env } from './env.js'
 import { toUnknownPeerId, toUserPeerId } from './interpreter/peer.js'
 import { initQuizBank } from './interpreter/quizSource.js'
 import { setRuntime } from './interpreter/runtime.js'
+import { wasAddedByAdmin } from './joinPolicy.js'
 
 const tg = new TelegramClient({
     apiId: env.API_ID,
@@ -94,23 +95,11 @@ dp.onChatMemberUpdate(
         const userId = toUserPeerId(Number(upd.user.id))
         const actorId = Number(upd.actor.id)
 
-        if (actorId !== (userId as number)) {
-            try {
-                const member = await tg.getChatMember({
-                    chatId: chatId as number,
-                    userId: actorId,
-                })
-                const status = member?.status
-                if (status === 'creator' || status === 'admin') {
-                    console.log(
-                        `[Event] User ${userId as number} was added/approved by admin ${actorId} in ${chatId as number}, skipping verification`,
-                    )
-                    return
-                }
-            } catch {
-                // If we can't look up the actor, proceed with verification
-                // to be safe (don't let lookup failures bypass security).
-            }
+        if (await wasAddedByAdmin(tg, chatId as number, userId as number, actorId)) {
+            console.log(
+                `[Event] User ${userId as number} was added/approved by admin ${actorId} in ${chatId as number}, skipping verification`,
+            )
+            return
         }
 
         console.log(`[Event] User ${userId as number} joined group ${chatId as number}`)
