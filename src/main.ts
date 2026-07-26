@@ -5,7 +5,9 @@ import { Dispatcher, filters } from '@mtcute/dispatcher'
 import { TelegramClient } from '@mtcute/node'
 import * as AppBridge from './AppBridge.res.mjs'
 import { env } from './env.js'
-import { initQuizBank, setRuntime, toUnknownPeerId, toUserPeerId } from './InterpreterMtCute.js'
+import { toUnknownPeerId, toUserPeerId } from './interpreter/peer.js'
+import { initQuizBank } from './interpreter/quizSource.js'
+import { setRuntime } from './interpreter/runtime.js'
 
 const tg = new TelegramClient({
     apiId: env.API_ID,

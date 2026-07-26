@@ -1,12 +1,12 @@
 open Domain
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/task.js")
 external pureImpl: 'a => promise<'a> = "pure"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/task.js")
 external bindImpl: (promise<'a>, 'a => promise<'b>) => promise<'b> = "bind"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external presentChallengeImpl: (
   Peer.id<'a>,
   Peer.id<Peer.user>,
@@ -16,55 +16,55 @@ external presentChallengeImpl: (
   int,
 ) => promise<Message.location<'a>> = "interaction_presentChallenge"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external updateStatusImpl: (Message.location<'a>, string) => promise<unit> = "interaction_updateStatus"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external acknowledgeClickImpl: (CallbackQuery.id, string, bool) => promise<unit> = "interaction_acknowledgeClick"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external enforceDecisionImpl: (Peer.id<'a>, Peer.id<Peer.user>, decision, context) => promise<unit> = "interaction_enforceDecision"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external logActivityImpl: (log_kind, Peer.id<'a>, Peer.id<Peer.user>) => promise<unit> = "interaction_logActivity"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external sendTempMessageImpl: (Peer.id<'a>, string) => promise<unit> = "interaction_sendTempMessage"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external scheduleMessageCleanupImpl: (Message.location<'a>, int) => promise<unit> = "interaction_scheduleMessageCleanup"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/interaction.js")
 external restrictUserImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<unit> = "interaction_restrictUser"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external waitAndPeekSessionImpl: (string, int) => promise<option<session>> = "interaction_waitAndPeekSession"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external cooldownCheckImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<bool> = "cooldown_check"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external cooldownApplyImpl: (Peer.id<'a>, Peer.id<Peer.user>, int) => promise<unit> = "cooldown_apply"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external sessionSaveImpl: session => promise<unit> = "session_save"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external sessionFindByTokenImpl: string => promise<option<session>> = "session_findByToken"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external sessionFindPendingImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<option<session>> = "session_findPending"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external sessionClaimImpl: string => promise<option<session>> = "session_claim"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/state.js")
 external sessionUpdateLocationImpl: (session, Message.location<Peer.unknown>) => promise<unit> = "session_updateLocation"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/quizSource.js")
 external quizGetRandomImpl: unit => promise<option<quiz>> = "quiz_getRandom"
 
-@module("./InterpreterMtCute.js")
+@module("./interpreter/quizSource.js")
 external quizReloadImpl: unit => promise<result<unit, string>> = "quiz_reload"
 
 module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
