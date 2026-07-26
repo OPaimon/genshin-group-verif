@@ -36,6 +36,25 @@ export class TTLMap<K, V> {
         this._data.delete(key)
     }
 
+    /** All live values (expired entries are skipped and dropped). */
+    values(): V[] {
+        const now = Date.now()
+        const result: V[] = []
+        for (const [key, entry] of this._data) {
+            if (now > entry.expiresAt) {
+                this._data.delete(key)
+            } else {
+                result.push(entry.value)
+            }
+        }
+        return result
+    }
+
+    /** Stop the background sweep timer. The map itself remains usable. */
+    dispose(): void {
+        clearInterval(this._timer)
+    }
+
     private _sweep(): void {
         const now = Date.now()
         for (const [key, entry] of this._data) {

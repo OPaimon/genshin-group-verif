@@ -1,25 +1,34 @@
 /**
- * StateSig.S — in-memory state with TTL-based auto-expiry:
- * session store + token/lookup indexes + cooldowns.
+ * StateSig.S — facade over the pluggable StateStore backend
+ * (memory | sqlite | redis, selected via STATE_BACKEND).
+ *
+ * Export names are the AppBridge.res binding surface — keep them stable.
  */
 
 import type { Message_location, Peer_id, Peer_unknown, Peer_user, session } from '../Domain.gen.js'
+import type { StateStore } from './state/store.js'
 
+import { env } from '../env.js'
 import { peerKey } from './peer.js'
-import { TTLMap } from './ttlMap.js'
+import { createStore } from './state/factory.js'
 
 // Safety net only: sessions are normally removed by claim (answer or 60s
 // timeout); the TTL exists so that a lost timer can't leak entries forever.
 const SESSION_TTL_MS = 5 * 60_000 // 5 minutes
 
-// Session store: sessionId → session
-const sessionById = new TTLMap<string, session>()
-// Token reverse index: token → sessionId (all option tokens, not just correct)
-const tokenIndex = new TTLMap<string, string>()
-// Pending lookup: "chatId:userId" → sessionId
-const lookupIndex = new TTLMap<string, string>()
-// Cooldown: "chatId:userId" → true
-const cooldownMap = new TTLMap<string, true>()
+const store: StateStore = createStore(
+    env.STATE_BACKEND === 'sqlite'
+        ? { backend: 'sqlite', path: env.STATE_SQLITE_PATH }
+        : env.STATE_BACKEND === 'redis'
+            ? { backend: 'redis', url: env.REDIS_URL }
+            : { backend: 'memory' },
+)
+console.log(`[State] Using ${env.STATE_BACKEND} backend`)
+
+/** The live store — used by main.ts for restart recovery (session.listAll). */
+export function stateStore(): StateStore {
+    return store
+}
 
 /**
  * Deferred observation for timeouts: wait, then peek the session store.
@@ -31,7 +40,7 @@ const cooldownMap = new TTLMap<string, true>()
 export async function session_waitAndPeek(sessionId: string, delaySec: number): Promise<session | undefined> {
     await new Promise(resolve => setTimeout(resolve, delaySec * 1000))
 
-    const session = sessionById.get(sessionId)
+    const session = await store.session.getById(sessionId)
 
     if (session) {
         console.log(`[Observer] Session ${sessionId} is still active after ${delaySec}s. Triggering timeout logic.`)
@@ -45,41 +54,25 @@ export async function session_waitAndPeek(sessionId: string, delaySec: number): 
 // ── Cooldown ────────────────────────────────────────────────
 
 export async function cooldown_check(chatId: Peer_id<any>, userId: Peer_id<Peer_user>): Promise<boolean> {
-    const key = peerKey(chatId as Peer_id<Peer_unknown>, userId)
-    return cooldownMap.has(key)
+    return store.cooldown.check(peerKey(chatId as Peer_id<Peer_unknown>, userId))
 }
 
 export async function cooldown_apply(chatId: Peer_id<any>, userId: Peer_id<Peer_user>, durationSec: number): Promise<void> {
-    const key = peerKey(chatId as Peer_id<Peer_unknown>, userId)
-    cooldownMap.set(key, true, durationSec * 1000)
+    return store.cooldown.apply(peerKey(chatId as Peer_id<Peer_unknown>, userId), durationSec * 1000)
 }
 
 // ── Session ─────────────────────────────────────────────────
 
 export async function session_save(s: session): Promise<void> {
-    sessionById.set(s.id, s, SESSION_TTL_MS)
-
-    // Index ALL option tokens → sessionId (not just the correct one).
-    // This allows findByToken to work for any clicked button.
-    for (const opt of s.optionsWithTokens) {
-        tokenIndex.set(opt.token, s.id, SESSION_TTL_MS)
-    }
-
-    const lk = peerKey(s.chatId, s.userId)
-    lookupIndex.set(lk, s.id, SESSION_TTL_MS)
+    return store.session.save(s, SESSION_TTL_MS)
 }
 
 export async function session_findByToken(token: string): Promise<session | undefined> {
-    const sessionId = tokenIndex.get(token)
-    if (sessionId === undefined) return undefined
-    return sessionById.get(sessionId)
+    return store.session.findByToken(token)
 }
 
 export async function session_findPending(chatId: Peer_id<any>, userId: Peer_id<Peer_user>): Promise<session | undefined> {
-    const lk = peerKey(chatId as Peer_id<Peer_unknown>, userId)
-    const sessionId = lookupIndex.get(lk)
-    if (sessionId === undefined) return undefined
-    return sessionById.get(sessionId)
+    return store.session.findPending(peerKey(chatId as Peer_id<Peer_unknown>, userId))
 }
 
 /**
@@ -87,25 +80,15 @@ export async function session_findPending(chatId: Peer_id<any>, userId: Peer_id<
  * and the lookup index entry. This is the single removal primitive: competing
  * terminal paths (answer callback vs. timeout) both claim first, and only the
  * winner — the one that gets the session back — may act on it.
- *
- * Atomicity invariant: there must be NO `await` before the store mutations, so
- * the lookup + deletes run as one uninterrupted step on the event loop.
  */
 export async function session_claim(id: string): Promise<session | undefined> {
-    const claimed = sessionById.get(id)
-    if (claimed === undefined) return undefined
-    for (const opt of claimed.optionsWithTokens) {
-        tokenIndex.delete(opt.token)
-    }
-    lookupIndex.delete(peerKey(claimed.chatId, claimed.userId))
-    sessionById.delete(claimed.id)
-    return claimed
+    return store.session.claim(id)
 }
 
 /**
- * Update a session's verificationLocation field (set after the quiz message is sent).
+ * Update a session's verificationLocation field (set after the quiz message is
+ * sent) — only if the session still exists; a claimed session stays gone.
  */
 export async function session_updateLocation(s: session, loc: Message_location<Peer_unknown>): Promise<void> {
-    const updated: session = { ...s, verificationLocation: loc }
-    sessionById.set(s.id, updated, SESSION_TTL_MS)
+    return store.session.updateLocation(s.id, loc, SESSION_TTL_MS)
 }

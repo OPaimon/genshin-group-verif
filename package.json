@@ -15,7 +15,7 @@
         "res:build": "rescript",
         "res:clean": "rescript clean",
         "res:dev": "rescript watch",
-        "test": "rescript && node --test src/FlowTest.res.mjs && node --import tsx --test src/interpreter/messages.test.ts src/interpreter/ttlMap.test.ts"
+        "test": "rescript && node --test src/FlowTest.res.mjs && node --import tsx --test src/interpreter/messages.test.ts src/interpreter/ttlMap.test.ts src/interpreter/state/memoryStore.test.ts src/interpreter/state/sqliteStore.test.ts src/interpreter/state/redisStore.test.ts"
     },
     "dependencies": {
         "@mtcute/dispatcher": "^0.31.0",
@@ -25,6 +25,7 @@
         "@rescript/runtime": "^12.1.0",
         "better-sqlite3": "^12.6.2",
         "dotenv-cli": "^11.0.0",
+        "ioredis": "^5.11.1",
         "rescript": "12.1.0",
         "tsx": "^4.21.0"
     },
@@ -32,6 +33,7 @@
         "@antfu/eslint-config": "^7.4.3",
         "@types/node": "^25.2.3",
         "esbuild": "^0.27.3",
+        "ioredis-mock": "^8.13.1",
         "typescript": "^5.9.3"
     },
     "pnpm": {

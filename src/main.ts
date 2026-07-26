@@ -8,6 +8,7 @@ import { env } from './env.js'
 import { toUnknownPeerId, toUserPeerId } from './interpreter/peer.js'
 import { initQuizBank } from './interpreter/quizSource.js'
 import { setRuntime } from './interpreter/runtime.js'
+import { stateStore } from './interpreter/state.js'
 import { wasAddedByAdmin } from './joinPolicy.js'
 
 const tg = new TelegramClient({
@@ -138,3 +139,17 @@ dp.onCallbackQuery(async (q) => {
 
 const me = await tg.start({ botToken: env.BOT_TOKEN })
 console.log(`✅ Logged in as @${me.username}`)
+
+// ── Restart recovery ───────────────────────────────────────
+// With a persistent backend, sessions survive a restart but their in-process
+// timeout observers don't — re-arm one per pending session so nobody stays
+// restricted forever. Double-arming is harmless: the observers' terminal
+// paths all go through claim, and only one claimer can win.
+
+const pendingSessions = await stateStore().session.listAll()
+for (const session of pendingSessions) {
+    AppBridge.App.armTimeoutObserver(session)
+}
+if (pendingSessions.length > 0) {
+    console.log(`[Recovery] Re-armed timeout observers for ${pendingSessions.length} pending session(s)`)
+}
