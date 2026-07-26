@@ -27,9 +27,8 @@ const cooldownMap = new TTLMap<string, true>()
  * this resolves to `undefined` and the timeout path must no-op.
  * The final arbiter is still `session_claim` — the peek only avoids running
  * the timeout chain in the common (already-handled) case.
- * (Part of InteractionSig, but lives here next to the store it reads.)
  */
-export async function interaction_waitAndPeekSession(sessionId: string, delaySec: number): Promise<session | undefined> {
+export async function session_waitAndPeek(sessionId: string, delaySec: number): Promise<session | undefined> {
     await new Promise(resolve => setTimeout(resolve, delaySec * 1000))
 
     const session = sessionById.get(sessionId)

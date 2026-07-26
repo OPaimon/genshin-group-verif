@@ -93,7 +93,7 @@ module Make = (
   // fork: 启动超时观察者, 但不并入调用者的效应链 — 兜底不能依赖后续效应成功。
   // 注意: 被丢弃的链绝不能 reject, 其中各效应的实现必须自行吞掉错误。
   let armTimeoutObserver = (session: session) =>
-    I.waitAndPeekSession(~sessionId=session.id, ~delaySec=sessionCleanupDelaySec)
+    S.Session.waitAndPeek(~sessionId=session.id, ~delaySec=sessionCleanupDelaySec)
     ->bind(maybeSession =>
       switch maybeSession {
       | Some(session) => handleTimeout(session)

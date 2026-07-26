@@ -79,14 +79,14 @@ describe("startVerification", () => {
   test("happy path — in-group", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    // trace: 9 ops — 观察者(waitAndPeekSession)必须先于 presentChallenge 挂上
+    // trace: 9 ops — 观察者(Session.waitAndPeek)必须先于 presentChallenge 挂上
     traceLen(9)
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
     traceNth(2, "Quiz.getRandom")
     traceNth(3, "restrictUser")
     traceNth(4, "Session.save")
-    traceNth(5, "waitAndPeekSession")
+    traceNth(5, "Session.waitAndPeek")
     traceNth(6, "presentChallenge")
     // 用户名与超时时长都来自输入, 不再由解释器另行拉取/硬编码
     traceHas(`name="Lumine"`)
@@ -115,7 +115,7 @@ describe("startVerification", () => {
     traceNot("restrictUser")
     traceNth(2, "Quiz.getRandom")
     traceNth(3, "Session.save")
-    traceNth(4, "waitAndPeekSession")
+    traceNth(4, "Session.waitAndPeek")
     traceNth(5, "presentChallenge")
     traceHas("presentChallenge  chat=42")
     traceNth(6, "Session.updateLocation")

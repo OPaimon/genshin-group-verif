@@ -35,6 +35,4 @@ module type S = {
     ~chatId: Domain.Peer.id<'a>,
     ~userId: Domain.Peer.id<Domain.Peer.user>,
   ) => t<unit>
-
-  let waitAndPeekSession: (~sessionId: string, ~delaySec: int) => t<option<Domain.session>>
 }

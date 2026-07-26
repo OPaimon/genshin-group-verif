@@ -38,7 +38,7 @@ external scheduleMessageCleanupImpl: (Message.location<'a>, int) => promise<unit
 external restrictUserImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<unit> = "interaction_restrictUser"
 
 @module("./interpreter/state.js")
-external waitAndPeekSessionImpl: (string, int) => promise<option<session>> = "interaction_waitAndPeekSession"
+external sessionWaitAndPeekImpl: (string, int) => promise<option<session>> = "session_waitAndPeek"
 
 @module("./interpreter/state.js")
 external cooldownCheckImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<bool> = "cooldown_check"
@@ -95,9 +95,6 @@ module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
 
   let restrictUser = (~chatId, ~userId) =>
     restrictUserImpl(chatId, userId)
-
-  let waitAndPeekSession = (~sessionId, ~delaySec) =>
-    waitAndPeekSessionImpl(sessionId, delaySec)
 }
 
 module State: StateSig.S with type t<'a> = promise<'a> = {
@@ -119,6 +116,8 @@ module State: StateSig.S with type t<'a> = promise<'a> = {
       sessionFindPendingImpl(chatId, userId)
     let claim = sessionClaimImpl
     let updateLocation = sessionUpdateLocationImpl
+    let waitAndPeek = (~sessionId, ~delaySec) =>
+      sessionWaitAndPeekImpl(sessionId, delaySec)
   }
 }
 

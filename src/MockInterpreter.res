@@ -177,11 +177,6 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
   let restrictUser = (~chatId, ~userId) => {
     record(`restrictUser  chat=${fmtPeer(chatId)} user=${fmtPeer(userId)}`)
   }
-
-  let waitAndPeekSession = (~sessionId, ~delaySec) => {
-    record(`waitAndPeekSession  sessionId=${sessionId} delay=${delaySec->Int.toString}s`)
-    None
-  }
 }
 
 module StateMock: StateSig.S with type t<'a> = 'a = {
@@ -251,6 +246,11 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
       let updated = {...session, verificationLocation: Some(loc)}
       State.sessions->Map.set(session.id, updated)
       record(`Session.updateLocation  id=${session.id} loc=${fmtLoc(loc)}`)
+    }
+
+    let waitAndPeek = (~sessionId, ~delaySec) => {
+      record(`Session.waitAndPeek  sessionId=${sessionId} delay=${delaySec->Int.toString}s`)
+      None
     }
   }
 }
