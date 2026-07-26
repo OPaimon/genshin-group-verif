@@ -17,5 +17,7 @@ export default antfu({
         'no-console': 'off',
         'node/prefer-global/process': 'off',
         'antfu/no-top-level-await': 'off',
+        // This repo's test runner is node:test (see FlowTest.res / NodeTest.res), not vitest
+        'test/no-import-node-test': 'off',
     },
 })
