@@ -1,10 +1,10 @@
-import { Dispatcher, filters } from '@mtcute/dispatcher'
 import type { ChatMemberUpdate } from '@mtcute/node'
-import { TelegramClient } from '@mtcute/node'
-
-import { env } from './env.js'
-import * as AppBridge from './AppBridge.res.mjs'
 import type { callback_input, start_input } from './Domain.gen.js'
+import { Dispatcher, filters } from '@mtcute/dispatcher'
+
+import { TelegramClient } from '@mtcute/node'
+import * as AppBridge from './AppBridge.res.mjs'
+import { env } from './env.js'
 import { initQuizBank, setRuntime, toUnknownPeerId, toUserPeerId } from './InterpreterMtCute.js'
 
 const tg = new TelegramClient({
@@ -14,6 +14,14 @@ const tg = new TelegramClient({
 })
 
 const dp = Dispatcher.for(tg)
+
+// Without this, a throwing handler propagates out of the dispatch loop as an
+// unhandled rejection. Log and mark handled — the verification flow's own
+// safety net (timeout observer) resolves any half-finished session.
+dp.onError((err, update) => {
+    console.error(`[Dispatcher] Handler error on ${update.name}:`, err)
+    return true
+})
 
 // Initialize runtime and quiz bank
 setRuntime(tg)
@@ -31,16 +39,19 @@ dp.onNewMessage(
     },
 )
 
-// ── /reload — hot-reload quizzes (admin only) ──────────────
+// ── /reload — hot-reload quizzes (ADMIN_IDS only) ──────────
 
 dp.onNewMessage(
     filters.command('reload'),
     async (msg) => {
+        if (!env.ADMIN_IDS.includes(msg.sender.id)) {
+            console.log(`[Reload] Ignored /reload from unauthorized user=${msg.sender.id}`)
+            return
+        }
         const result = await AppBridge.QuizSource.reload()
         if (result.TAG === 'Ok') {
             await msg.answerText('✅ 题库已重新加载。')
-        }
-        else {
+        } else {
             await msg.answerText(`❌ 重新加载失败: ${result._0}`)
         }
     },
@@ -59,7 +70,6 @@ dp.onBotChatJoinRequest(async (req) => {
         chatId,
         userChatId: toUnknownPeerId(Number(req.user.id)), // DM goes to user
         userFirstName: req.user.firstName ?? String(req.user.id),
-        chatTitle: 'title' in req.chat ? (req.chat as any).title : undefined,
         context: 'Join_request',
     }
 
@@ -95,8 +105,7 @@ dp.onChatMemberUpdate(
                     )
                     return
                 }
-            }
-            catch {
+            } catch {
                 // If we can't look up the actor, proceed with verification
                 // to be safe (don't let lookup failures bypass security).
             }
@@ -109,7 +118,6 @@ dp.onChatMemberUpdate(
             chatId,
             userChatId: chatId, // In-group: quiz is sent to the group itself
             userFirstName: upd.user.firstName ?? String(upd.user.id),
-            chatTitle: 'title' in upd.chat ? (upd.chat as any).title : undefined,
             context: 'In_group',
         }
 
@@ -139,4 +147,3 @@ dp.onCallbackQuery(async (q) => {
 
 const me = await tg.start({ botToken: env.BOT_TOKEN })
 console.log(`✅ Logged in as @${me.username}`)
-

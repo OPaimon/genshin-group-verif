@@ -66,7 +66,6 @@ let defaultInput = (ctx: context): start_input => {
   | Join_request => chat(42.0)
   },
   userFirstName: "Lumine",
-  chatTitle: Some("原神群"),
   context: ctx,
 }
 
@@ -80,16 +79,20 @@ describe("startVerification", () => {
   test("happy path — in-group", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    // trace: 8 ops
-    traceLen(8)
+    // trace: 9 ops — 观察者(waitAndPeekSession)必须先于 presentChallenge 挂上
+    traceLen(9)
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
-    traceNth(2, "restrictUser")
-    traceNth(3, "Quiz.getRandom")
+    traceNth(2, "Quiz.getRandom")
+    traceNth(3, "restrictUser")
     traceNth(4, "Session.save")
-    traceNth(5, "presentChallenge")
-    traceNth(6, "Session.updateLocation")
-    traceNth(7, "logActivity")
+    traceNth(5, "waitAndPeekSession")
+    traceNth(6, "presentChallenge")
+    // 用户名与超时时长都来自输入, 不再由解释器另行拉取/硬编码
+    traceHas(`name="Lumine"`)
+    traceHas("timeout=60s")
+    traceNth(7, "Session.updateLocation")
+    traceNth(8, "logActivity")
     traceHas("kind=Request_start")
 
     // state
@@ -106,16 +109,17 @@ describe("startVerification", () => {
   test("happy path — join request", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(Join_request))
 
-    traceLen(7)
+    traceLen(8)
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
     traceNot("restrictUser")
     traceNth(2, "Quiz.getRandom")
     traceNth(3, "Session.save")
-    traceNth(4, "presentChallenge")
+    traceNth(4, "waitAndPeekSession")
+    traceNth(5, "presentChallenge")
     traceHas("presentChallenge  chat=42")
-    traceNth(5, "Session.updateLocation")
-    traceNth(6, "logActivity")
+    traceNth(6, "Session.updateLocation")
+    traceNth(7, "logActivity")
     traceHas("kind=Request_start")
 
     sessionCount(1)
@@ -145,7 +149,7 @@ describe("startVerification", () => {
     lookupCount(0)
   })
 
-  test("existing pending session — cleanup then bail", () => {
+  test("existing pending session — claim then bail", () => {
     let old: session = {
       id: "old-sess-1",
       chatId: chat(-100.0),
@@ -163,7 +167,8 @@ describe("startVerification", () => {
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
     traceHas("found")
-    traceHas("Session.cleanup")
+    traceHas("Session.claim")
+    traceHas("→ won")
     traceHas("scheduleCleanup")
     traceHas("sendTempMessage")
     traceHas("正在进行的验证")
@@ -178,19 +183,21 @@ describe("startVerification", () => {
     lookupCount(0)
   })
 
-  test("no quizzes available — bail", () => {
+  test("no quizzes available — bail without restricting", () => {
     MockInterpreter.QuizBank.clear()
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
+    traceLen(5)
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
-    traceNth(2, "restrictUser")
-    traceNth(3, "Quiz.getRandom")
+    traceNth(2, "Quiz.getRandom")
     traceHas("Quiz.getRandom → none")
-    traceHas("sendTempMessage")
+    traceNth(3, "sendTempMessage")
     traceHas("验证服务当前不可用")
-    traceHas("enforceDecision")
+    traceNth(4, "enforceDecision")
+    // 题库不可用时不应先禁言 — 避免「已禁言却无题可答」的遗留状态
+    traceNot("restrictUser")
 
     sessionCount(0)
     tokenCount(0)
@@ -212,7 +219,7 @@ let seedSession = () => {
 describe("handleCallback", () => {
   beforeEach(() => MockInterpreter.reset())
 
-  test("correct answer — grant access + cleanup", () => {
+  test("correct answer — claim, grant access", () => {
     let sess = seedSession()
 
     MockInterpreter.TestFlow.handleCallback({
@@ -222,16 +229,18 @@ describe("handleCallback", () => {
       messageLocation: sess.verificationLocation->Option.getOrThrow,
     })
 
-    traceLen(6)
+    traceLen(7)
     traceNth(0, "Session.findByToken")
     traceHas("found")
-    traceNth(1, "updateStatus")
+    traceNth(1, "Session.claim")
+    traceHas("→ won")
+    traceNth(2, "acknowledgeClick")
+    traceNth(3, "updateStatus")
     traceHas("验证通过")
-    traceNth(2, "enforceDecision")
+    traceNth(4, "enforceDecision")
     traceHas("Grant_access")
-    traceNth(3, "Session.cleanup")
-    traceNth(4, "scheduleCleanup")
-    traceNth(5, "logActivity")
+    traceNth(5, "scheduleCleanup")
+    traceNth(6, "logActivity")
     traceHas("kind=Success")
 
     sessionGone(sess.id)
@@ -255,8 +264,11 @@ describe("handleCallback", () => {
     })
 
     traceNth(0, "Session.findByToken")
+    traceNth(1, "Session.claim")
+    traceHas("→ won")
+    traceNth(2, "acknowledgeClick")
+    traceHas("回答错误")
     traceHas("Cooldown.apply")
-    traceHas("Session.cleanup")
     traceHas("updateStatus")
     traceHas("验证失败")
     traceHas("Punish_soft")
@@ -284,6 +296,7 @@ describe("handleCallback", () => {
     traceNth(0, "Session.findByToken")
     traceNth(1, "acknowledgeClick")
     traceHas("不适用于你")
+    traceNot("Session.claim")
 
     sessionExists(sess.id)
     sessionCount(1)
@@ -318,19 +331,26 @@ describe("handleCallback", () => {
 describe("handleTimeout", () => {
   beforeEach(() => MockInterpreter.reset())
 
-  test("with verification message — update + cleanup schedule", () => {
+  test("with verification message — claim, punish, update + cleanup schedule", () => {
     let sess = seedSession()
 
     MockInterpreter.TestFlow.handleTimeout(sess)
 
-    traceLen(4)
-    traceNth(0, "enforceDecision")
+    traceLen(5)
+    traceNth(0, "Session.claim")
+    traceHas("→ won")
+    traceNth(1, "enforceDecision")
     traceHas("Punish_soft")
-    traceNth(1, "updateStatus")
+    traceNth(2, "updateStatus")
     traceHas("超时")
-    traceNth(2, "scheduleCleanup")
-    traceNth(3, "logActivity")
+    traceNth(3, "scheduleCleanup")
+    traceNth(4, "logActivity")
     traceHas("kind=Fail_timeout")
+
+    sessionGone(sess.id)
+    sessionCount(0)
+    tokenCount(0)
+    lookupCount(0)
   })
 
   test("without verification message — skip UI ops", () => {
@@ -343,15 +363,107 @@ describe("handleTimeout", () => {
       optionsWithTokens: [],
       verificationLocation: None,
     }
+    MockInterpreter.StateMock.Session.save(bare)
+    MockInterpreter.trace := []
 
     MockInterpreter.TestFlow.handleTimeout(bare)
 
-    traceLen(2)
-    traceNth(0, "enforceDecision")
+    traceLen(3)
+    traceNth(0, "Session.claim")
+    traceHas("→ won")
+    traceNth(1, "enforceDecision")
     traceHas("Punish_soft")
-    traceNth(1, "logActivity")
+    traceNth(2, "logActivity")
     traceHas("kind=Fail_timeout")
     traceNot("updateStatus")
     traceNot("scheduleCleanup")
+
+    sessionGone("timeout-sess")
+  })
+})
+
+// ═════════════════════════════════════════════════════════════
+// describe: claim races — the timeout ↔ answer double-decision class
+// ═════════════════════════════════════════════════════════════
+
+describe("session claim races", () => {
+  beforeEach(() => MockInterpreter.reset())
+
+  test("claim is atomic — second claim loses", () => {
+    let sess = seedSession()
+
+    let first = MockInterpreter.StateMock.Session.claim(sess.id)
+    let second = MockInterpreter.StateMock.Session.claim(sess.id)
+
+    ok(first->Option.isSome, ~message="first claim wins")
+    ok(second->Option.isNone, ~message="second claim loses")
+    sessionCount(0)
+    tokenCount(0)
+    lookupCount(0)
+  })
+
+  test("late timeout after correct answer — loses claim, no punish", () => {
+    let sess = seedSession()
+
+    MockInterpreter.TestFlow.handleCallback({
+      callbackData: sess.correctToken,
+      queryId: queryId(10),
+      userId: user(42.0),
+      messageLocation: sess.verificationLocation->Option.getOrThrow,
+    })
+
+    // 60s 观察者随后携带(过期的)peek 副本触发
+    MockInterpreter.trace := []
+    MockInterpreter.TestFlow.handleTimeout(sess)
+
+    traceLen(1)
+    traceNth(0, "Session.claim")
+    traceHas("→ lost")
+    traceNot("enforceDecision")
+    traceNot("kind=Fail_timeout")
+    noCooldowns()
+  })
+
+  test("click after timeout — session already claimed, no grant", () => {
+    let sess = seedSession()
+
+    MockInterpreter.TestFlow.handleTimeout(sess)
+    MockInterpreter.trace := []
+
+    MockInterpreter.TestFlow.handleCallback({
+      callbackData: sess.correctToken,
+      queryId: queryId(11),
+      userId: user(42.0),
+      messageLocation: sess.verificationLocation->Option.getOrThrow,
+    })
+
+    traceLen(2)
+    traceNth(0, "Session.findByToken")
+    traceHas("→ none")
+    traceNth(1, "acknowledgeClick")
+    traceHas("过期")
+    traceNot("Grant_access")
+    noCooldowns()
+  })
+
+  test("duplicate correct clicks — no double grant", () => {
+    let sess = seedSession()
+    let input: callback_input = {
+      callbackData: sess.correctToken,
+      queryId: queryId(12),
+      userId: user(42.0),
+      messageLocation: sess.verificationLocation->Option.getOrThrow,
+    }
+
+    MockInterpreter.TestFlow.handleCallback(input)
+    MockInterpreter.trace := []
+    MockInterpreter.TestFlow.handleCallback(input)
+
+    traceLen(2)
+    traceNth(0, "Session.findByToken")
+    traceHas("→ none")
+    traceNth(1, "acknowledgeClick")
+    traceHas("过期")
+    traceNot("Grant_access")
   })
 })

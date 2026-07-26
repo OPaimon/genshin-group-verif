@@ -8,7 +8,7 @@ A Telegram bot built with **mtcute** (lightweight Telegram client library) for g
 ### Bot Setup (src/main.ts)
 - **TelegramClient**: Initialized with API credentials from env vars, stores session in `bot-data/session`
 - **Dispatcher**: Routes incoming messages to handlers based on filters
-- **Pattern**: Register handlers with `dp.onNewMessage(filters.condition, async handler)` 
+- **Pattern**: Register handlers with `dp.onNewMessage(filters.condition, async handler)`
 - Session persistence enables stateful bot operations across restarts
 
 ### Environment Management (src/env.ts)
@@ -43,13 +43,15 @@ let handleStart = async (msg: message) => {
 ```
 Generates `Handlers.gen.tsx` with:
 ```typescript
-export type message = { readonly answerText: (arg: string) => Promise<void> };
-export const handleStart: (msg: message) => Promise<void>;
+export interface message { readonly answerText: (arg: string) => Promise<void> }
+export const handleStart: (msg: message) => Promise<void>
 ```
 TypeScript imports and gets full type safety:
 ```typescript
-import { handleStart, type message } from './Handlers.gen.js'
-await handleStart(msg)  // ✅ Type checked
+import type { message } from './Handlers.gen.js'
+import { handleStart } from './Handlers.gen.js'
+
+await handleStart(msg) // ✅ Type checked
 ```
 
 See `GENTYPE_APPLICATION.md` for detailed setup and examples.
@@ -105,7 +107,6 @@ pnpm dev
 - Business logic benefits from ReScript's strong types and immutability guarantees
 - Minimal risk: failing ts → rescript is low-cost, can proceed incrementally
 - No performance overhead: ReScript compiles to efficient JavaScript
-
 
 ## Conventions & Gotchas
 - **Session persistence**: Changes in `bot-data/session` survive restarts - critical for state

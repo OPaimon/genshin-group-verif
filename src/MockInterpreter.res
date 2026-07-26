@@ -51,7 +51,6 @@ let fmtDecision = (d: decision): string =>
   switch d {
   | Grant_access => "Grant_access"
   | Punish_soft => "Punish_soft"
-  | Punish_hard(n) => `Punish_hard(${n->Int.toString})`
   }
 
 let fmtLogKind = (k: log_kind): string =>
@@ -141,19 +140,17 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
   let pure = (x: 'a): 'a => x
   let bind = (x: 'a, f: 'a => 'b): 'b => f(x)
 
-  let presentChallenge = (~chatId, ~userId, ~question, ~options) => {
+  let presentChallenge = (~chatId, ~userId, ~userFirstName, ~question, ~options, ~timeoutSec) => {
     let optStr = options->Array.map(((text, tok)) => `"${text}"(${tok})`)->Array.join(", ")
-    record(`presentChallenge  chat=${fmtPeer(chatId)} user=${fmtPeer(userId)} q="${question}" opts=[${optStr}]`)
+    record(
+      `presentChallenge  chat=${fmtPeer(chatId)} user=${fmtPeer(userId)} name="${userFirstName}" q="${question}" opts=[${optStr}] timeout=${timeoutSec->Int.toString}s`,
+    )
     let msgId = allocMsgId()
     (Peer.unsafeCastAny(Peer.value(chatId)), msgId)
   }
 
   let updateStatus = (~loc, ~status) => {
     record(`updateStatus  ${fmtLoc(loc)} "${status}"`)
-  }
-
-  let destroyUI = (~loc) => {
-    record(`destroyUI  ${fmtLoc(loc)}`)
   }
 
   let acknowledgeClick = (~queryId, ~text, ~showAlert) => {
@@ -234,29 +231,20 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
       result
     }
 
-    let delete = (sessionId: string) => {
-      let maybeSess = State.sessions->Map.get(sessionId)
-      switch maybeSess {
+    let claim = (sessionId: string) => {
+      let claimed = State.sessions->Map.get(sessionId)
+      switch claimed {
       | Some(s) =>
         s.optionsWithTokens->Array.forEach(o => {
           State.tokenIndex->Map.delete(o.token)->ignore
         })
         let lk = State.lookupKey(~chatId=s.chatId, ~userId=s.userId)
         State.lookupIndex->Map.delete(lk)->ignore
+        State.sessions->Map.delete(sessionId)->ignore
       | None => ()
       }
-      State.sessions->Map.delete(sessionId)->ignore
-      record(`Session.delete  id=${sessionId}`)
-    }
-
-    let cleanup = (session: session) => {
-      session.optionsWithTokens->Array.forEach(o => {
-        State.tokenIndex->Map.delete(o.token)->ignore
-      })
-      let lk = State.lookupKey(~chatId=session.chatId, ~userId=session.userId)
-      State.lookupIndex->Map.delete(lk)->ignore
-      State.sessions->Map.delete(session.id)->ignore
-      record(`Session.cleanup  id=${session.id}`)
+      record(`Session.claim  id=${sessionId} → ${claimed->Option.isSome ? "won" : "lost"}`)
+      claimed
     }
 
     let updateLocation = (session: session, loc: Message.location<Peer.unknown>) => {

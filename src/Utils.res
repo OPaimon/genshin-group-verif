@@ -1,25 +1,16 @@
-@val @scope("crypto") 
+@val @scope("crypto")
 external randomUUID: unit => string = "randomUUID"
 
-let panic = (msg: string): 'a => {
-  JsError.throwWithMessage("PANIC (unreachable): " ++ msg)
-}
-
-let todo = (msg: string): 'a => {
-  JsError.throwWithMessage("TODO (not implemented): " ++ msg)
+// Fisher–Yates — uniform, unlike sorting by a random comparator
+let shuffle = (arr: array<'a>): array<'a> => {
+  let a = arr->Array.copy
+  for i in a->Array.length - 1 downto 1 {
+    let j = (Math.random() *. Int.toFloat(i + 1))->Math.floor->Float.toInt
+    let tmp = Array.getUnsafe(a, i)
+    Array.setUnsafe(a, i, Array.getUnsafe(a, j))
+    Array.setUnsafe(a, j, tmp)
+  }
+  a
 }
 
 let discard = (_value: 'a): unit => ()
-
-let null = discard
-
-let unreachable = panic
-
-let todoWith = (~_value: 'a, ~msg: string): 'b => {
-  todo(msg)
-}
-
-let todo2 = (value: 'a, msg: string): 'b => {
-  todoWith(~_value=value, ~msg)
-}
-

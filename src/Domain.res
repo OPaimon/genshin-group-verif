@@ -6,8 +6,7 @@ type context =
 @genType
 type decision =
   | Grant_access // 通过验证
-  | Punish_soft // 软惩罚
-  | Punish_hard(int) // 硬惩罚
+  | Punish_soft // 软惩罚 (踢出/拒绝, 可重新加入)
 
 @genType
 type log_kind =
@@ -19,35 +18,17 @@ type log_kind =
 @genType
 module Peer = {
   type user
-  type group // 普通群
-  type channel // 超级群或频道
-  
-  type unknown 
+  type unknown
 
   type id<'a> = private float
 
-  type kind =
-    | User(id<user>)
-    | Group(id<group>)
-    | Channel(id<channel>)
-
   external value: id<'a> => float = "%identity"
-  
+
   external unsafeCastUser: float => id<user> = "%identity"
   external unsafeCastAny: float => id<'a> = "%identity"
 
   let widen = (peerId: id<'a>): id<unknown> =>
     peerId->value->unsafeCastAny
-
-  let refine = (raw: float): kind => {
-    if raw > 0.0 {
-      User(unsafeCastAny(raw))
-    } else if raw >= -2147483647.0 {
-      Group(unsafeCastAny(raw))
-    } else {
-      Channel(unsafeCastAny(raw))
-    }
-  }
 }
 
 
@@ -64,8 +45,6 @@ module Message = {
 @genType
 module CallbackQuery = {
   type id = private BigInt.t
-  type location = 
-    | InChat(Message.location<Peer.unknown>)
 }
 
 @genType
@@ -94,18 +73,6 @@ type quiz = {
 }
 
 @genType
-type verification_error =
-  | User_pending
-  | No_quizzes_available
-  | State_storage_failed(string)
-  | User_on_cooldown
-  | Invalid_callback_data
-  | User_not_match
-  | Incorrect_or_expired_token
-  | Session_not_found
-  | Session_deserialization_failed(string)
-
-@genType
 type callback_input = {
   callbackData: string,
   queryId: CallbackQuery.id,
@@ -119,6 +86,5 @@ type start_input = {
   chatId: Peer.id<Peer.unknown>,
   userChatId: Peer.id<Peer.unknown>,
   userFirstName: string,
-  chatTitle: option<string>,
   context: context,
 }

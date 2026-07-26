@@ -2,19 +2,19 @@
     "compilerOptions": {
         "incremental": true,
         "target": "es2022",
+        "jsx": "react-jsx",
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
-        "jsx": "react-jsx",
+        "allowImportingTsExtensions": true,
         "allowJs": true,
         "strict": true,
         "inlineSources": true,
+        "noEmit": true,
         "outDir": "./dist",
         "sourceMap": true,
         "allowSyntheticDefaultImports": true,
         "esModuleInterop": true,
-        "skipLibCheck": true,
-        "allowImportingTsExtensions": true,
-        "noEmit": true
+        "skipLibCheck": true
     },
     "include": [
         "./src"

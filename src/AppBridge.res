@@ -1,9 +1,6 @@
 open Domain
 
 @module("./InterpreterMtCute.js")
-external setRuntime: 'a => unit = "setRuntime"
-
-@module("./InterpreterMtCute.js")
 external pureImpl: 'a => promise<'a> = "pure"
 
 @module("./InterpreterMtCute.js")
@@ -14,14 +11,13 @@ external presentChallengeImpl: (
   Peer.id<'a>,
   Peer.id<Peer.user>,
   string,
+  string,
   array<(string, string)>,
+  int,
 ) => promise<Message.location<'a>> = "interaction_presentChallenge"
 
 @module("./InterpreterMtCute.js")
 external updateStatusImpl: (Message.location<'a>, string) => promise<unit> = "interaction_updateStatus"
-
-@module("./InterpreterMtCute.js")
-external destroyUIImpl: Message.location<'a> => promise<unit> = "interaction_destroyUI"
 
 @module("./InterpreterMtCute.js")
 external acknowledgeClickImpl: (CallbackQuery.id, string, bool) => promise<unit> = "interaction_acknowledgeClick"
@@ -60,10 +56,7 @@ external sessionFindByTokenImpl: string => promise<option<session>> = "session_f
 external sessionFindPendingImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<option<session>> = "session_findPending"
 
 @module("./InterpreterMtCute.js")
-external sessionDeleteImpl: string => promise<unit> = "session_delete"
-
-@module("./InterpreterMtCute.js")
-external sessionCleanupImpl: session => promise<unit> = "session_cleanup"
+external sessionClaimImpl: string => promise<option<session>> = "session_claim"
 
 @module("./InterpreterMtCute.js")
 external sessionUpdateLocationImpl: (session, Message.location<Peer.unknown>) => promise<unit> = "session_updateLocation"
@@ -80,11 +73,10 @@ module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
   let pure = pureImpl
   let bind = bindImpl
 
-  let presentChallenge = (~chatId, ~userId, ~question, ~options) =>
-    presentChallengeImpl(chatId, userId, question, options)
+  let presentChallenge = (~chatId, ~userId, ~userFirstName, ~question, ~options, ~timeoutSec) =>
+    presentChallengeImpl(chatId, userId, userFirstName, question, options, timeoutSec)
 
   let updateStatus = (~loc, ~status) => updateStatusImpl(loc, status)
-  let destroyUI = (~loc) => destroyUIImpl(loc)
 
   let acknowledgeClick = (~queryId, ~text, ~showAlert) =>
     acknowledgeClickImpl(queryId, text, showAlert)
@@ -125,8 +117,7 @@ module State: StateSig.S with type t<'a> = promise<'a> = {
     let findByToken = sessionFindByTokenImpl
     let findPending = (~chatId, ~userId) =>
       sessionFindPendingImpl(chatId, userId)
-    let delete = sessionDeleteImpl
-    let cleanup = sessionCleanupImpl
+    let claim = sessionClaimImpl
     let updateLocation = sessionUpdateLocationImpl
   }
 }

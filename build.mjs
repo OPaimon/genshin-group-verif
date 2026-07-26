@@ -32,37 +32,37 @@ execSync('pnpm res:build', { stdio: 'inherit', cwd: root })
 console.log('⏳ Bundling with esbuild …')
 
 const result = await esbuild.build({
-  entryPoints: [resolve(root, 'src/main.ts')],
-  outfile: resolve(dist, 'main.mjs'),
-  bundle: true,
-  platform: 'node',
-  target: 'node22',
-  format: 'esm',
+    entryPoints: [resolve(root, 'src/main.ts')],
+    outfile: resolve(dist, 'main.mjs'),
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'esm',
 
-  // Native addon — resolved from node_modules at runtime
-  external: ['better-sqlite3'],
+    // Native addon — resolved from node_modules at runtime
+    external: ['better-sqlite3'],
 
-  minify: true,
-  treeShaking: true,
-  sourcemap: true,
-  sourcesContent: false,
-  metafile: true,
+    minify: true,
+    treeShaking: true,
+    sourcemap: true,
+    sourcesContent: false,
+    metafile: true,
 
-  // ReScript outputs .res.mjs; let esbuild resolve them
-  resolveExtensions: ['.ts', '.tsx', '.mjs', '.js', '.json'],
+    // ReScript outputs .res.mjs; let esbuild resolve them
+    resolveExtensions: ['.ts', '.tsx', '.mjs', '.js', '.json'],
 
-  define: { 'process.env.NODE_ENV': '"production"' },
-  loader: { '.wasm': 'file' },
-  assetNames: '[name]',
+    define: { 'process.env.NODE_ENV': '"production"' },
+    loader: { '.wasm': 'file' },
+    assetNames: '[name]',
 
-  // Shim `require()` for native addons in ESM context
-  banner: {
-    js: [
-      '// genshin-group-verif production bundle',
-      'import{createRequire as __cr}from"node:module";',
-      'const require=__cr(import.meta.url);',
-    ].join('\n'),
-  },
+    // Shim `require()` for native addons in ESM context
+    banner: {
+        js: [
+            '// genshin-group-verif production bundle',
+            'import{createRequire as __cr}from"node:module";',
+            'const require=__cr(import.meta.url);',
+        ].join('\n'),
+    },
 })
 
 // ── 3. Copy runtime data ──────────────────────────────────────
@@ -74,17 +74,17 @@ cpSync(resolve(root, 'bot-data/quizzes.json'), quizDst)
 writeFileSync(resolve(dist, 'metafile.json'), JSON.stringify(result.metafile))
 
 if (process.argv.includes('--analyze')) {
-  console.log('\n📊 Bundle analysis:\n')
-  console.log(await esbuild.analyzeMetafile(result.metafile, { verbose: false }))
+    console.log('\n📊 Bundle analysis:\n')
+    console.log(await esbuild.analyzeMetafile(result.metafile, { verbose: false }))
 }
 
-const kb = (f) => {
-  const s = existsSync(f) ? statSync(f).size : 0
-  return `${(s / 1024).toFixed(1)} KB`
+function kb(f) {
+    const s = existsSync(f) ? statSync(f).size : 0
+    return `${(s / 1024).toFixed(1)} KB`
 }
 
-console.log(`\n✅ Build complete → dist/`)
+console.log('\n✅ Build complete → dist/')
 console.log(`   main.mjs      ${kb(resolve(dist, 'main.mjs'))}`)
 console.log(`   main.mjs.map  ${kb(resolve(dist, 'main.mjs.map'))}`)
-console.log(`   quizzes.json  ✓`)
-console.log(`\n   Run:  node --enable-source-maps dist/main.mjs`)
+console.log('   quizzes.json  ✓')
+console.log('\n   Run:  node --enable-source-maps dist/main.mjs')

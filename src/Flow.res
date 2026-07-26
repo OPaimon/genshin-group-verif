@@ -25,7 +25,7 @@ module Make = (
     let withTokens =
       quiz.options->Array.map((text): option_with_token => {optionText: text, token: randomUUID()})
     let correctToken = Array.getUnsafe(withTokens, quiz.correctOptionIndex).token
-    let shuffled = withTokens->Array.toSorted((_, _) => Math.random() -. 0.5)
+    let shuffled = withTokens->shuffle
     {question: quiz.question, optionsWithTokens: shuffled, correctToken}
   }
 
@@ -35,11 +35,16 @@ module Make = (
     | Join_request => session.userId->Peer.widen
     }
 
+  // claim 输掉竞争(会话已被并发路径处理)时的统一回复
+  let ackExpired = queryId =>
+    I.acknowledgeClick(~queryId, ~text=`验证已过期或无效，请重新发起。`, ~showAlert=true)
+
   let cleanupWithMessage = (session: session) =>
-    S.Session.cleanup(session)->bind(() =>
-      switch session.verificationLocation {
-      | Some(loc) => I.scheduleMessageCleanup(~loc, ~delaySec=messageDeletionDelaySec)
-      | None => return()
+    S.Session.claim(session.id)->bind(claimed =>
+      switch claimed {
+      | Some({verificationLocation: Some(loc)}) =>
+        I.scheduleMessageCleanup(~loc, ~delaySec=messageDeletionDelaySec)
+      | Some({verificationLocation: None}) | None => return()
       }
     )
 
@@ -58,30 +63,49 @@ module Make = (
 
   // ── Handle Timeout ────────────────────────
 
+  // 先原子认领会话 — 若已被答题回调处理 (claim → None) 则直接放弃, 不惩罚
   let handleTimeout = (session: session) =>
-    I.enforceDecision(
-      ~chatId=session.chatId,
-      ~userId=session.userId,
-      ~decision=Punish_soft,
-      ~context=session.context,
-    )
-    ->bind(() =>
-      switch session.verificationLocation {
-      | Some(loc) =>
-        I.updateStatus(~loc, ~status=`验证已超时，操作已被取消。`)->bind(() =>
-          I.scheduleMessageCleanup(~loc, ~delaySec=messageDeletionDelaySec)
+    S.Session.claim(session.id)->bind(claimed =>
+      switch claimed {
+      | None => return()
+      | Some(session) =>
+        I.enforceDecision(
+          ~chatId=session.chatId,
+          ~userId=session.userId,
+          ~decision=Punish_soft,
+          ~context=session.context,
         )
+        ->bind(() =>
+          switch session.verificationLocation {
+          | Some(loc) =>
+            I.updateStatus(~loc, ~status=`验证已超时，操作已被取消。`)->bind(() =>
+              I.scheduleMessageCleanup(~loc, ~delaySec=messageDeletionDelaySec)
+            )
+          | None => return()
+          }
+        )
+        ->bind(() =>
+          I.logActivity(~kind=Fail_timeout, ~chatId=session.chatId, ~userId=session.userId)
+        )
+      }
+    )
+
+  // fork: 启动超时观察者, 但不并入调用者的效应链 — 兜底不能依赖后续效应成功。
+  // 注意: 被丢弃的链绝不能 reject, 其中各效应的实现必须自行吞掉错误。
+  let armTimeoutObserver = (session: session) =>
+    I.waitAndPeekSession(~sessionId=session.id, ~delaySec=sessionCleanupDelaySec)
+    ->bind(maybeSession =>
+      switch maybeSession {
+      | Some(session) => handleTimeout(session)
       | None => return()
       }
     )
-    ->bind(() => S.Session.cleanup(session))
-    ->bind(() => I.logActivity(~kind=Fail_timeout, ~chatId=session.chatId, ~userId=session.userId))
-
+    ->discard
 
   // ── Start Verification ────────────────────
 
   let startVerification = (input: start_input) => {
-    let {userId, chatId, userChatId, context} = input
+    let {userId, chatId, userChatId, userFirstName, context} = input
 
     let bail = msg =>
       I.sendTempMessage(~chatId=userChatId, ~text=msg)->bind(() =>
@@ -103,62 +127,51 @@ module Make = (
 
           // ── 正常流程 ──
           | None =>
-            // in-group 先禁言
-            switch context {
-            | In_group => I.restrictUser(~chatId, ~userId)
-            | Join_request => return()
-            }->bind(
-              () =>
-                Q.getRandom()->bind(
-                  maybeQuiz =>
-                    switch maybeQuiz {
-                    | None =>
-                      bail(`验证服务当前不可用，我们无法处理您的请求。`)
+            // 先确认题库可用再做任何对用户可见的动作 —
+            // 服务不可用时不应留下「已被禁言却无题可答」的用户
+            Q.getRandom()->bind(
+              maybeQuiz =>
+                switch maybeQuiz {
+                | None =>
+                  bail(`验证服务当前不可用，我们无法处理您的请求。`)
 
-                    | Some(raw) =>
-                      let quiz = prepareQuiz(raw)
-                      let session: session = {
-                        id: randomUUID(),
-                        chatId,
-                        userId,
-                        correctToken: quiz.correctToken,
-                        context,
-                        optionsWithTokens: quiz.optionsWithTokens,
-                        verificationLocation: None,
-                      }
-                      let options = quiz.optionsWithTokens->Array.map(o => (o.optionText, o.token))
-                      let dest = switch context {
-                      | In_group => chatId
-                      | Join_request => userId->Peer.widen
-                      }
+                | Some(raw) =>
+                  let quiz = prepareQuiz(raw)
+                  let session: session = {
+                    id: randomUUID(),
+                    chatId,
+                    userId,
+                    correctToken: quiz.correctToken,
+                    context,
+                    optionsWithTokens: quiz.optionsWithTokens,
+                    verificationLocation: None,
+                  }
+                  let options = quiz.optionsWithTokens->Array.map(o => (o.optionText, o.token))
+                  let dest = targetChat(session)
 
-                      S.Session.save(session)
-                      ->bind(
-                        () =>
-                          I.presentChallenge(
-                            ~chatId=dest,
-                            ~userId,
-                            ~question=quiz.question,
-                            ~options,
-                          ),
-                      )
-                      ->bind(loc => S.Session.updateLocation(session, loc))
-                      ->bind(() => I.logActivity(~kind=Request_start, ~chatId, ~userId))
-                      ->bind(
-                        () =>
-                          I.waitAndPeekSession(
-                            ~sessionId=session.id,
-                            ~delaySec=sessionCleanupDelaySec,
-                          )->bind(
-                            maybeSession =>
-                              switch maybeSession {
-                              | Some(session) => handleTimeout(session)
-                              | None => return()
-                              },
-                          ),
-                      )
-                    },
-                ),
+                  // in-group 先禁言
+                  switch context {
+                  | In_group => I.restrictUser(~chatId, ~userId)
+                  | Join_request => return()
+                  }
+                  ->bind(() => S.Session.save(session))
+                  ->bind(() => {
+                    // 兜底必须先于可失败的 UI/日志效应挂上: 即使 presentChallenge
+                    // 或 logActivity 失败, 超时观察者也会裁决并清理会话,
+                    // 不会留下被永久禁言的用户
+                    armTimeoutObserver(session)
+                    I.presentChallenge(
+                      ~chatId=dest,
+                      ~userId,
+                      ~userFirstName,
+                      ~question=quiz.question,
+                      ~options,
+                      ~timeoutSec=sessionCleanupDelaySec,
+                    )
+                  })
+                  ->bind(loc => S.Session.updateLocation(session, loc))
+                  ->bind(() => I.logActivity(~kind=Request_start, ~chatId, ~userId))
+                },
             )
           }
         )
@@ -175,51 +188,60 @@ module Make = (
       switch found {
       | None =>
         // token 无效/过期 — 直接告知
-        I.acknowledgeClick(
-          ~queryId,
-          ~text=`验证已过期或无效，请重新发起。`,
-          ~showAlert=true,
-        )
+        ackExpired(queryId)
 
       | Some(session) if session.userId != userId =>
-        // 不是本人
+        // 不是本人 — 不 claim, 会话保持原样
         I.acknowledgeClick(~queryId, ~text=`该验证不适用于你。`, ~showAlert=true)
 
-      | Some(session) if session.correctToken == callbackData =>
-        // 回答正确
-        I.updateStatus(~loc=messageLocation, ~status=`验证通过！欢迎加入！`)
-        ->bind(() =>
-          I.enforceDecision(
-            ~chatId=session.chatId,
-            ~userId=session.userId,
-            ~decision=Grant_access,
-            ~context=session.context,
-          )
-        )
-        ->bind(() => S.Session.cleanup(session))
-        ->bind(() =>
-          I.scheduleMessageCleanup(~loc=messageLocation, ~delaySec=messageDeletionDelaySec)
-        )
-        ->bind(() => I.logActivity(~kind=Success, ~chatId=session.chatId, ~userId=session.userId))
-
       | Some(session) =>
-        // 回答错误
-        S.Cooldown.apply(
-          ~chatId=session.chatId,
-          ~userId=session.userId,
-          ~durationSec=cooldownDurationSec,
-        )
-        ->bind(() => S.Session.cleanup(session))
-        ->bind(() =>
-          rejectAndLog(
-            ~session,
-            ~loc=messageLocation,
-            ~text=`验证失败，入群请求已被拒绝。`,
-            ~logKind=Fail_error,
-          )
-        )
-        ->bind(() =>
-          I.scheduleMessageCleanup(~loc=messageLocation, ~delaySec=messageDeletionDelaySec)
+        // 终态转移: 先原子认领。findByToken 和 claim 之间可能被并发路径
+        // (超时/重复点击)抢先 — 输掉 claim 则视为过期, 不做任何裁决。
+        S.Session.claim(session.id)->bind(claimed =>
+          switch claimed {
+          | None => ackExpired(queryId)
+
+          | Some(session) if session.correctToken == callbackData =>
+            // 回答正确
+            I.acknowledgeClick(~queryId, ~text=`验证通过！`, ~showAlert=false)
+            ->bind(() => I.updateStatus(~loc=messageLocation, ~status=`验证通过！欢迎加入！`))
+            ->bind(() =>
+              I.enforceDecision(
+                ~chatId=session.chatId,
+                ~userId=session.userId,
+                ~decision=Grant_access,
+                ~context=session.context,
+              )
+            )
+            ->bind(() =>
+              I.scheduleMessageCleanup(~loc=messageLocation, ~delaySec=messageDeletionDelaySec)
+            )
+            ->bind(() =>
+              I.logActivity(~kind=Success, ~chatId=session.chatId, ~userId=session.userId)
+            )
+
+          | Some(session) =>
+            // 回答错误
+            I.acknowledgeClick(~queryId, ~text=`回答错误，验证失败。`, ~showAlert=true)
+            ->bind(() =>
+              S.Cooldown.apply(
+                ~chatId=session.chatId,
+                ~userId=session.userId,
+                ~durationSec=cooldownDurationSec,
+              )
+            )
+            ->bind(() =>
+              rejectAndLog(
+                ~session,
+                ~loc=messageLocation,
+                ~text=`验证失败，入群请求已被拒绝。`,
+                ~logKind=Fail_error,
+              )
+            )
+            ->bind(() =>
+              I.scheduleMessageCleanup(~loc=messageLocation, ~delaySec=messageDeletionDelaySec)
+            )
+          }
         )
       }
     )

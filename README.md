@@ -10,4 +10,3 @@ cp .env.example .env
 # edit .env
 pnpm start
 ```
-

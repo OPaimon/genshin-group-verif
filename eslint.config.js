@@ -6,6 +6,8 @@ export default antfu({
     },
     typescript: true,
     yaml: false,
+    // genType output and Claude Code local settings — not hand-written
+    ignores: ['**/*.gen.tsx', '.claude/'],
     rules: {
         'curly': ['error', 'multi-line'],
         'style/brace-style': ['error', '1tbs', { allowSingleLine: true }],

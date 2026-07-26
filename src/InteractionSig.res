@@ -4,16 +4,17 @@ module type S = {
   let pure: 'a => t<'a>
   let bind: (t<'a>, 'a => t<'b>) => t<'b>
 
+  /// timeoutSec 会渲染进提示文案 — 由调用方传入实际的超时时长, 保证文案与行为一致
   let presentChallenge: (
     ~chatId: Domain.Peer.id<'a>,
     ~userId: Domain.Peer.id<Domain.Peer.user>,
+    ~userFirstName: string,
     ~question: string,
     ~options: array<(string, string)>,
+    ~timeoutSec: int,
   ) => t<Domain.Message.location<'a>>
 
   let updateStatus: (~loc: Domain.Message.location<'a>, ~status: string) => t<unit>
-
-  let destroyUI: (~loc: Domain.Message.location<'a>) => t<unit>
 
   let acknowledgeClick: (~queryId: Domain.CallbackQuery.id, ~text: string, ~showAlert: bool) => t<unit>
 

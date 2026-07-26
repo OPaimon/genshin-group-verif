@@ -12,10 +12,11 @@ module type S = {
     let save: Domain.session => t<unit>
     let findByToken: string => t<option<Domain.session>>
     let findPending: (~chatId: Domain.Peer.id<'a>, ~userId: Domain.Peer.id<Domain.Peer.user>) => t<option<Domain.session>>
-    let delete: string => t<unit>
 
-    /// 全量清理: 删除 session + lookup + token_map + timeout_queue
-    let cleanup: Domain.session => t<unit>
+    /// 原子认领: 一步完成「取出 + 全量删除 (session + lookup + token_map)」。
+    /// 会话的终态转移 (通过/失败/超时) 必须先 claim, 拿到 Some 才有权执行;
+    /// None 表示已被并发路径处理, 调用方必须放弃。
+    let claim: string => t<option<Domain.session>>
 
     /// 更新 session 的 verificationLocation 字段
     let updateLocation: (Domain.session, Domain.Message.location<Domain.Peer.unknown>) => t<unit>
