@@ -17,6 +17,7 @@ import type {
 import { BotKeyboard } from '@mtcute/node'
 
 import { env } from '../env.js'
+import { logger } from '../logger.js'
 import { activityLogMessage, challengeMessage, formatLogKind } from './messages.js'
 import { tg } from './runtime.js'
 
@@ -51,7 +52,7 @@ export async function interaction_presentChallenge(chatId: Peer_id<any>, userId:
 
         return [chatId, sent.id as Message_id]
     } catch (err: any) {
-        console.error('[presentChallenge] Failed to send verification question:', err)
+        logger.error('[presentChallenge] Failed to send verification question:', err)
         return undefined
     }
 }
@@ -92,12 +93,12 @@ export async function interaction_updateStatus(loc: Message_location<any>, statu
                 })
             } catch (retryErr: any) {
                 if (retryErr?.text !== 'MESSAGE_NOT_MODIFIED') {
-                    console.error('[updateStatus] Retry without markup also failed:', retryErr)
+                    logger.error('[updateStatus] Retry without markup also failed:', retryErr)
                 }
             }
             return
         }
-        console.error('[updateStatus] Failed:', err)
+        logger.error('[updateStatus] Failed:', err)
     }
 }
 
@@ -115,7 +116,7 @@ export async function interaction_acknowledgeClick(queryId: CallbackQuery_id, te
             alert: showAlert,
         })
     } catch (err: any) {
-        console.error('[acknowledgeClick] Failed:', err)
+        logger.error('[acknowledgeClick] Failed:', err)
     }
 }
 
@@ -165,7 +166,7 @@ export async function interaction_enforceDecision(chatId: Peer_id<any>, userId: 
             }
         }
     } catch (err: any) {
-        console.error(`[enforceDecision] Failed (decision=${JSON.stringify(dec)}, ctx=${ctx}):`, err)
+        logger.error(`[enforceDecision] Failed (decision=${JSON.stringify(dec)}, ctx=${ctx}):`, err)
     }
 }
 
@@ -180,7 +181,7 @@ export async function interaction_enforceDecision(chatId: Peer_id<any>, userId: 
 export async function interaction_logActivity(kind: log_kind, chatId: Peer_id<any>, userId: Peer_id<Peer_user>): Promise<void> {
     const ts = new Date().toISOString()
     const tag = formatLogKind(kind)
-    console.log(`[Verification] ${ts} kind=${tag} chat=${chatId as number} user=${userId as number}`)
+    logger.info(`[Verification] ${ts} kind=${tag} chat=${chatId as number} user=${userId as number}`)
     try {
         const user = await tg().getUser(userId as number)
         const chat = await tg().getChat(chatId as number)
@@ -194,7 +195,7 @@ export async function interaction_logActivity(kind: log_kind, chatId: Peer_id<an
         })
         await tg().sendText(env.LOG_PEER, text, { disableWebPreview: true })
     } catch (err) {
-        console.error('[logActivity] Failed to send log message:', err)
+        logger.error('[logActivity] Failed to send log message:', err)
     }
 }
 
@@ -210,10 +211,10 @@ export async function interaction_sendTempMessage(chatId: Peer_id<any>, text: st
         setTimeout(async () => {
             try {
                 await tg().deleteMessagesById(chatId as number, [sent.id])
-            } catch { /* message may already be deleted */ }
+            } catch (err) { logger.debug('[sendTempMessage] Cleanup delete failed (ignored):', err) }
         }, TEMP_MESSAGE_TTL_MS)
     } catch (err: any) {
-        console.error('[sendTempMessage] Failed:', err)
+        logger.error('[sendTempMessage] Failed:', err)
     }
 }
 
@@ -225,7 +226,7 @@ export async function interaction_scheduleMessageCleanup(loc: Message_location<a
     setTimeout(async () => {
         try {
             await tg().deleteMessagesById(chatId as number, [msgId as number])
-        } catch { /* message may already be deleted */ }
+        } catch (err) { logger.debug('[scheduleMessageCleanup] Delete failed (ignored):', err) }
     }, delaySec * 1000)
 }
 
@@ -261,6 +262,6 @@ export async function interaction_restrictUser(chatId: Peer_id<any>, userId: Pee
             },
         })
     } catch (err: any) {
-        console.error('[restrictUser] Failed:', err)
+        logger.error('[restrictUser] Failed:', err)
     }
 }

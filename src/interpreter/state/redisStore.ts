@@ -26,6 +26,7 @@ import type { StateStore } from './store.js'
 
 import { Redis } from 'ioredis'
 
+import { logger } from '../../logger.js'
 import { decodeSession, encodeSession, sessionLookupKey } from './store.js'
 
 const CLAIM_LUA = `
@@ -142,7 +143,8 @@ export function createRedisStoreWithClient(client: Redis, keyPrefix: string = 'g
         async close() {
             try {
                 await redis.quit()
-            } catch {
+            } catch (err) {
+                logger.warn('[redisStore] quit failed; forcing disconnect.', err)
                 redis.disconnect()
             }
         },

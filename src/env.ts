@@ -1,4 +1,4 @@
-const { API_ID, API_HASH, BOT_TOKEN, LOG_PEER, ADMIN_IDS, AD_LIST_URL, STATE_BACKEND, STATE_SQLITE_PATH, REDIS_URL } = process.env
+const { API_ID, API_HASH, BOT_TOKEN, LOG_PEER, ADMIN_IDS, AD_LIST_URL, STATE_BACKEND, STATE_SQLITE_PATH, REDIS_URL, SENTRY_DSN, SENTRY_ENVIRONMENT } = process.env
 
 if (!API_ID || !API_HASH || !BOT_TOKEN || !LOG_PEER || Number.isNaN(Number(API_ID)) || Number.isNaN(Number(LOG_PEER))) {
     throw new Error('Invalid env: API_ID, API_HASH, BOT_TOKEN, and LOG_PEER are required.')
@@ -27,6 +27,12 @@ export const env = {
     API_HASH,
     BOT_TOKEN,
     LOG_PEER: Number(LOG_PEER),
+    // Sentry error monitoring. Empty/absent = Sentry is completely disabled
+    // (the local-dev default). Set to a project DSN to enable reporting.
+    SENTRY_DSN: SENTRY_DSN ?? '',
+    // Tag attached to Sentry events. Defaults to production in the built
+    // bundle (NODE_ENV is defined there) and development everywhere else.
+    SENTRY_ENVIRONMENT: SENTRY_ENVIRONMENT ?? (process.env.NODE_ENV === 'production' ? 'production' : 'development'),
     // Users allowed to run privileged commands (/reload). Empty = disabled.
     ADMIN_IDS: adminIds,
     // Ad block appended to verification messages. Unset = default link;
