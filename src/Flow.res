@@ -61,6 +61,25 @@ module Make = (
     )
     ->bind(() => I.logActivity(~kind=logKind, ~chatId=session.chatId, ~userId=session.userId))
 
+  // 验证题发送失败: 没有验证消息可编辑/清理, 直接裁决为验证失败。
+  // 先 claim 再裁决, 输给超时观察者 (claim → None) 时放弃, 避免重复处理。
+  let rejectChallengeSendFailure = (session: session) =>
+    S.Session.claim(session.id)->bind(claimed =>
+      switch claimed {
+      | None => return()
+      | Some(session) =>
+        I.enforceDecision(
+          ~chatId=session.chatId,
+          ~userId=session.userId,
+          ~decision=Punish_soft,
+          ~context=session.context,
+        )
+        ->bind(() =>
+          I.logActivity(~kind=Fail_error, ~chatId=session.chatId, ~userId=session.userId)
+        )
+      }
+    )
+
   // ── Handle Timeout ────────────────────────
 
   // 先原子认领会话 — 若已被答题回调处理 (claim → None) 则直接放弃, 不惩罚
@@ -156,9 +175,8 @@ module Make = (
                   }
                   ->bind(() => S.Session.save(session))
                   ->bind(() => {
-                    // 兜底必须先于可失败的 UI/日志效应挂上: 即使 presentChallenge
-                    // 或 logActivity 失败, 超时观察者也会裁决并清理会话,
-                    // 不会留下被永久禁言的用户
+                    // 兜底观察者仍先挂上; presentChallenge 返回 option, 发送失败
+                    // 不再打断整条链, 而是进入下方 None 分支立即裁决
                     armTimeoutObserver(session)
                     I.presentChallenge(
                       ~chatId=dest,
@@ -169,8 +187,14 @@ module Make = (
                       ~timeoutSec=sessionCleanupDelaySec,
                     )
                   })
-                  ->bind(loc => S.Session.updateLocation(session, loc))
-                  ->bind(() => I.logActivity(~kind=Request_start, ~chatId, ~userId))
+                  ->bind(sent =>
+                    switch sent {
+                    | Some(loc) =>
+                      S.Session.updateLocation(session, loc)
+                      ->bind(() => I.logActivity(~kind=Request_start, ~chatId, ~userId))
+                    | None => rejectChallengeSendFailure(session)
+                    }
+                  )
                 },
             )
           }

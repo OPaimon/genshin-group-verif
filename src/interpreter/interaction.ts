@@ -24,8 +24,11 @@ import { tg } from './runtime.js'
  * Present a verification challenge with inline keyboard buttons.
  * Sends an HTML-formatted message with one callback button per option.
  * The user's name comes from the triggering update — no extra getUser call.
+ * Returns `undefined` when the challenge message cannot be sent (e.g. the
+ * user was deleted while their join request was pending); the flow layer
+ * then treats the verification as failed and declines/kicks immediately.
  */
-export async function interaction_presentChallenge(chatId: Peer_id<any>, userId: Peer_id<Peer_user>, userFirstName: string, question: string, options: Array<[string, string]>, timeoutSec: number): Promise<Message_location<any>> {
+export async function interaction_presentChallenge(chatId: Peer_id<any>, userId: Peer_id<Peer_user>, userFirstName: string, question: string, options: Array<[string, string]>, timeoutSec: number): Promise<Message_location<any> | undefined> {
     const content = challengeMessage({
         userId: userId as number,
         userFirstName,
@@ -40,12 +43,17 @@ export async function interaction_presentChallenge(chatId: Peer_id<any>, userId:
         BotKeyboard.callback(label, token),
     ])
 
-    const sent = await tg().sendText(chatId as number, content, {
-        replyMarkup: BotKeyboard.inline(keyboard),
-        disableWebPreview: true,
-    })
+    try {
+        const sent = await tg().sendText(chatId as number, content, {
+            replyMarkup: BotKeyboard.inline(keyboard),
+            disableWebPreview: true,
+        })
 
-    return [chatId, sent.id as Message_id]
+        return [chatId, sent.id as Message_id]
+    } catch (err: any) {
+        console.error('[presentChallenge] Failed to send verification question:', err)
+        return undefined
+    }
 }
 
 /**

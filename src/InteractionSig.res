@@ -5,6 +5,7 @@ module type S = {
   let bind: (t<'a>, 'a => t<'b>) => t<'b>
 
   /// timeoutSec 会渲染进提示文案 — 由调用方传入实际的超时时长, 保证文案与行为一致
+  /// None = 验证题发送失败; 调用方应直接按验证失败裁决
   let presentChallenge: (
     ~chatId: Domain.Peer.id<'a>,
     ~userId: Domain.Peer.id<Domain.Peer.user>,
@@ -12,7 +13,7 @@ module type S = {
     ~question: string,
     ~options: array<(string, string)>,
     ~timeoutSec: int,
-  ) => t<Domain.Message.location<'a>>
+  ) => t<option<Domain.Message.location<'a>>>
 
   let updateStatus: (~loc: Domain.Message.location<'a>, ~status: string) => t<unit>
 

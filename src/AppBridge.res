@@ -14,7 +14,7 @@ external presentChallengeImpl: (
   string,
   array<(string, string)>,
   int,
-) => promise<Message.location<'a>> = "interaction_presentChallenge"
+) => promise<option<Message.location<'a>>> = "interaction_presentChallenge"
 
 @module("./interpreter/interaction.js")
 external updateStatusImpl: (Message.location<'a>, string) => promise<unit> = "interaction_updateStatus"

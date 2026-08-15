@@ -118,6 +118,9 @@ let allocMsgId = (): Message.id => {
   Message.castId(id)
 }
 
+// 测试注入: true 时 presentChallenge 模拟发送失败 (返回 None)
+let failPresentChallenge: ref<bool> = ref(false)
+
 // ── Master reset ────────────────────────────────────────────
 
 let reset = () => {
@@ -128,6 +131,7 @@ let reset = () => {
     {id: 2, question: "「风神」的名字是？", options: ["钟离", "巴巴托斯", "雷电影", "纳西妲"], correctOptionIndex: 1},
   ]
   nextMsgId := 1000
+  failPresentChallenge := false
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -145,8 +149,12 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
     record(
       `presentChallenge  chat=${fmtPeer(chatId)} user=${fmtPeer(userId)} name="${userFirstName}" q="${question}" opts=[${optStr}] timeout=${timeoutSec->Int.toString}s`,
     )
-    let msgId = allocMsgId()
-    (Peer.unsafeCastAny(Peer.value(chatId)), msgId)
+    if failPresentChallenge.contents {
+      None
+    } else {
+      let msgId = allocMsgId()
+      Some((Peer.unsafeCastAny(Peer.value(chatId)), msgId))
+    }
   }
 
   let updateStatus = (~loc, ~status) => {

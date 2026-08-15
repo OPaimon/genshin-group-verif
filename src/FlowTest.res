@@ -202,6 +202,68 @@ describe("startVerification", () => {
     sessionCount(0)
     tokenCount(0)
   })
+
+  test("presentChallenge fails in-group — immediate verification failure", () => {
+    MockInterpreter.failPresentChallenge := true
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+
+    traceLen(10)
+    traceNth(0, "Cooldown.check")
+    traceNth(1, "Session.findPending")
+    traceNth(2, "Quiz.getRandom")
+    traceNth(3, "restrictUser")
+    traceNth(4, "Session.save")
+    traceNth(5, "Session.waitAndPeek")
+    traceNth(6, "presentChallenge")
+    traceNth(7, "Session.claim")
+    traceHas("→ won")
+    traceNth(8, "enforceDecision")
+    traceHas("decision=Punish_soft")
+    traceNth(9, "logActivity")
+    traceHas("kind=Fail_error")
+
+    traceNot("updateStatus")
+    traceNot("Request_start")
+    traceNot("Cooldown.apply")
+
+    sessionCount(0)
+    tokenCount(0)
+    lookupCount(0)
+    noCooldowns()
+  })
+
+  test("presentChallenge fails join request — decline pending request immediately", () => {
+    MockInterpreter.failPresentChallenge := true
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(Join_request))
+
+    traceLen(9)
+    traceNth(0, "Cooldown.check")
+    traceNth(1, "Session.findPending")
+    traceNth(2, "Quiz.getRandom")
+    traceNth(3, "Session.save")
+    traceNth(4, "Session.waitAndPeek")
+    traceNth(5, "presentChallenge")
+    traceHas("presentChallenge  chat=42")
+    traceNth(6, "Session.claim")
+    traceHas("→ won")
+    traceNth(7, "enforceDecision")
+    traceHas("decision=Punish_soft")
+    traceHas("ctx=Join_request")
+    traceNth(8, "logActivity")
+    traceHas("kind=Fail_error")
+
+    traceNot("restrictUser")
+    traceNot("updateStatus")
+    traceNot("Request_start")
+    traceNot("Cooldown.apply")
+
+    sessionCount(0)
+    tokenCount(0)
+    lookupCount(0)
+    noCooldowns()
+  })
 })
 
 // ═════════════════════════════════════════════════════════════
