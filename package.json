@@ -33,12 +33,14 @@
         "@antfu/eslint-config": "^7.4.3",
         "@types/node": "^25.2.3",
         "esbuild": "^0.27.3",
+        "eslint": "^9.39.2",
         "ioredis-mock": "^8.13.1",
         "typescript": "^5.9.3"
     },
     "pnpm": {
         "onlyBuiltDependencies": [
-            "better-sqlite3"
+            "better-sqlite3",
+            "esbuild"
         ]
     }
 }
