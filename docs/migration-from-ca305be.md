@@ -5,6 +5,13 @@
 > （`feat: Enhance verification message with additional group join advertisement`），
 > 需要迁移到最新 `main` head。
 
+## 环境要求
+
+- **Node.js**：当前代码使用 Node 内置 `node:sqlite`（见 `src/interpreter/state/sqliteStore.ts`），
+  因此建议运行 **Node.js >= 22.13**。注意 `package.json` 目前还没有 `engines` 字段，
+  不会强制拦截旧版本 Node，部署时需自行确保版本满足要求。
+- **pnpm**：与 lockfile 匹配，当前固定 `pnpm@10.17.1`。
+
 ## 迁移前后主要变化
 
 从 `ca305be` 到最新 `main`，代码经历了大量重构与功能新增，主要包括：
