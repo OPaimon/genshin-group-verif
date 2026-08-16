@@ -15,6 +15,7 @@
 
 - [docs/design.md](docs/design.md) — 设计意图与行为约定
 - [docs/deploy-non-docker.md](docs/deploy-non-docker.md) — 非 Docker 手动部署详细说明
+- [docs/migration-from-ca305be.md](docs/migration-from-ca305be.md) — 从旧版 ca305be 实例迁移到最新 main 的指南
 - [docs/analysis/README.md](docs/analysis/README.md) — 架构分析索引（如已合入）
 
 ## 环境要求
