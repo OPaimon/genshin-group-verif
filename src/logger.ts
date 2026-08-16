@@ -3,8 +3,11 @@ import { captureError } from './sentry.js'
 /**
  * Single thin logging entry point.
  *
- * - debug/info → console only, never leave the machine.
- * - warn/error  → console + Sentry (a no-op when Sentry is disabled).
+ * - debug/info/warn/error → console. When Sentry is enabled, every level at
+ *   or above SENTRY_LOG_LEVEL is additionally captured by the console-logs
+ *   integration (scrubbed by sentry.ts beforeSendLog).
+ * - warn/error also create a Sentry error/warning event (no-op when Sentry is
+ *   disabled), so failures are visible in Issues as well as Logs.
  *
  * Keep this API intentionally small: no transport/provider abstraction.
  * The third surface — Telegram LOG_PEER audit messages — is a business log,
@@ -43,7 +46,7 @@ export const logger = {
     },
 
     info(...args: unknown[]): void {
-        console.log(...args)
+        console.info(...args)
     },
 
     warn(...args: unknown[]): void {

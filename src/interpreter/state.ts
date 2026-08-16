@@ -24,7 +24,6 @@ const store: StateStore = createStore(
             ? { backend: 'redis', url: env.REDIS_URL }
             : { backend: 'memory' },
 )
-logger.info(`[State] Using ${env.STATE_BACKEND} backend`)
 
 /** The live store — used by main.ts for restart recovery (session.listAll). */
 export function stateStore(): StateStore {

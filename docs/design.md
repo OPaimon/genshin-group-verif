@@ -100,35 +100,37 @@ There are **three distinct surfaces**, and they are not interchangeable:
 | Surface | Transport | What goes there |
 | --- | --- | --- |
 | Console | stdout/stderr → Docker logs | debug/info/warn/error for local and container debugging |
-| Sentry | `@sentry/node` → sentry.io SaaS | warn/error events only, PII-scrubbed |
+| Sentry | `@sentry/node` → sentry.io SaaS | PII-scrubbed **logs** (levels ≥ `SENTRY_LOG_LEVEL`) and **error events** (warn/error) |
 | LOG_PEER | Telegram channel message | verification audit events (`#REQUEST_START`, `#SUCCESS`, `#FAIL_TIMEOUT`, `#FAIL_ERROR`, …) |
 
 ### Level policy
 
-- `logger.debug` / `logger.info`: console only. Never sent to Sentry.
-- `logger.warn`: console + Sentry (warning-level event).
-- `logger.error`: console + Sentry (exception when an `Error` is passed,
-  otherwise an error-level message).
+- `logger.debug` / `logger.info`: console + Sentry Logs when the level is at or
+  above `SENTRY_LOG_LEVEL` (default `info`, so debug stays local by default).
+- `logger.warn`: console + Sentry Logs + a warning-level Sentry event.
+- `logger.error`: console + Sentry Logs + a Sentry exception/error event
+  (exception when an `Error` is passed, otherwise an error-level message).
 - Benign known cases (`MESSAGE_NOT_MODIFIED`) stay silent.
 - Deliberately swallowed errors are still recorded at an explicit level:
   - `joinPolicy` lookup failure → `warn`
   - `redisStore.close` failure → `warn`
   - timed message-cleanup delete failures → `debug`
 
-Sentry is **error monitoring only** — no tracing, no performance monitoring,
-no log aggregation (`tracesSampleRate: 0`). LOG_PEER remains the audit surface;
-only a failure to send to LOG_PEER itself becomes a Sentry error.
+Sentry is **error monitoring + log forwarding**, not tracing or performance
+monitoring (`tracesSampleRate: 0`). LOG_PEER remains the Telegram audit surface;
+only a failure to send to LOG_PEER itself becomes a Sentry error event.
 
 ### Privacy policy (what may leave the server)
 
 - Message text and any personal profile field: **never sent to Sentry**.
-- Numeric Telegram IDs: **hashed** before leaving. Warn/error log messages do
-  not embed raw IDs. Console-only messages may use raw IDs because they never
-  leave the server.
+- Numeric Telegram IDs: **hashed** before leaving. Raw IDs in console messages
+  are permitted because `beforeSend` (error events) and `beforeSendLog`
+  (log messages and their structured `sentry.message.parameter.*` attributes)
+  scrub them before transmission.
 - The `Console` and `LocalVariables` Sentry integrations are disabled so
-  console output and local variable inspection cannot leak data into events.
-- `beforeSend` additionally scrubs long numeric tokens from event messages and
-  exception values as a second line of defence.
+  breadcrumbs and local variable inspection cannot leak data into events.
+  (`ConsoleLogs` is the separate, deliberately enabled integration.)
+- Warn/error event messages do not embed raw IDs.
 
 ### Crash policy
 
@@ -143,6 +145,10 @@ only a failure to send to LOG_PEER itself becomes a Sentry error.
 - `SENTRY_DSN` empty/absent → Sentry is completely disabled (local dev default).
 - `SENTRY_ENVIRONMENT` tags events (`production` in the built bundle,
   `development` otherwise, overridable via env).
+- `SENTRY_LOG_LEVEL` is the minimum console level forwarded to Sentry Logs
+  (`debug` | `info` | `warn` | `error`, default `info`).
+- Sentry Logs (`enableLogs` + `consoleLoggingIntegration`) is experimental in
+  `@sentry/node` v10; verify your sentry.io plan supports Logs.
 - Production build currently keeps `minify` + sourcemaps. During the trial
   period, verify that captured stack traces are readable; if not, either
   disable `minify` or add release-based sourcemap upload.
@@ -154,8 +160,8 @@ only a failure to send to LOG_PEER itself becomes a Sentry error.
   launched with `node --enable-source-maps`.
 - `docker-compose`: one `bot` service, `restart: always`, `.env` passed via
   `env_file`, `./bot-data` mounted for session storage and quiz bank.
-- Log collection: Docker default stdout/stderr driver; no application-level
-  log shipping.
+- Log collection: Docker default stdout/stderr driver; the application
+  additionally forwards Sentry Logs for levels ≥ `SENTRY_LOG_LEVEL`.
 
 ### Environment variables
 
@@ -165,6 +171,7 @@ only a failure to send to LOG_PEER itself becomes a Sentry error.
 | `LOG_PEER` | yes | numeric peer id receiving verification audit messages |
 | `SENTRY_DSN` | no | Sentry DSN; empty disables Sentry |
 | `SENTRY_ENVIRONMENT` | no | event environment tag |
+| `SENTRY_LOG_LEVEL` | no | minimum level sent to Sentry Logs; default `info` |
 | `ADMIN_IDS` | no | comma-separated user ids allowed `/reload` |
 | `AD_LIST_URL` | no | ad link appended to verification messages |
 | `STATE_BACKEND` | no | `memory` (default) / `sqlite` / `redis` |
@@ -173,10 +180,12 @@ only a failure to send to LOG_PEER itself becomes a Sentry error.
 
 ## 6. Sentry adoption criteria and rollback
 
-Sentry was introduced as a **reversible trial** (sentry.io SaaS, error-only):
+Sentry was introduced as a **reversible trial** (sentry.io SaaS, error
+monitoring plus log forwarding):
 
 - **Success**: production exceptions are visible with readable stacks,
-  environment and enough context to locate the failure; no performance
+  environment and enough context to locate the failure; forwarded logs are
+  searchable and their volume/noise is within the trial budget; no performance
   regression on the verification path; local development and Docker logs
   workflows are unchanged.
 - **Rollback**: if noise/false positives exceed a usable threshold or cost

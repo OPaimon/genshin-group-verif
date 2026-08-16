@@ -1,4 +1,4 @@
-import type { ErrorEvent } from '@sentry/node'
+import type { ErrorEvent, Log } from '@sentry/node'
 
 import { createHash } from 'node:crypto'
 import * as Sentry from '@sentry/node'
@@ -7,10 +7,13 @@ import * as Sentry from '@sentry/node'
  * Sentry is an opt-in error-monitoring sidecar.
  *
  * - SENTRY_DSN empty/absent → this module is a no-op (local dev default).
- * - Error monitoring only: tracing is disabled, console and local-variable
+ * - Error monitoring: tracing is disabled, console and local-variable
  *   integrations are disabled so PII from ordinary logging can never leak
- *   into events, and `beforeSend` scrubs Telegram-style numeric IDs as a
+ *   into error events, and `beforeSend` scrubs Telegram-style numeric IDs as a
  *   second line of defence.
+ * - Logging: Sentry Logs are enabled for console levels at or above
+ *   SENTRY_LOG_LEVEL; `beforeSendLog` applies the same ID scrubbing to log
+ *   messages and their structured attributes.
  * - The crash handlers live in main.ts (capture, flush, exit) — Sentry's own
  *   OnUncaughtException/OnUnhandledRejection integrations are disabled so the
  *   exit policy stays in one place.
@@ -24,6 +27,8 @@ const DISABLED_INTEGRATIONS = new Set([
     'OnUncaughtException',
     'OnUnhandledRejection',
 ])
+
+const LOG_LEVEL_ORDER = ['debug', 'info', 'warn', 'error'] as const
 
 const TELEGRAM_ID_PATTERN = /\b-?\d{7,13}\b/g
 
@@ -52,6 +57,39 @@ function sanitizeEvent(event: ErrorEvent): ErrorEvent {
     return event
 }
 
+/**
+ * Recursively scrub log attributes: console args are stored under
+ * `sentry.message.parameter.*` and numeric Telegram IDs arrive as numbers,
+ * so a string-only scrub is not enough.
+ */
+function scrubValue(value: unknown): unknown {
+    if (typeof value === 'string') return scrubText(value)
+    if (typeof value === 'number') {
+        const raw = String(value)
+        return /^-?\d{7,13}$/.test(raw) ? `#${hashToken(raw)}` : value
+    }
+    if (Array.isArray(value)) return value.map(scrubValue)
+    if (value !== null && typeof value === 'object') {
+        const scrubbed: Record<string, unknown> = {}
+        for (const [key, entry] of Object.entries(value)) {
+            scrubbed[key] = scrubValue(entry)
+        }
+        return scrubbed
+    }
+    return value
+}
+
+function scrubAttributes(attributes?: Record<string, unknown>): Record<string, unknown> | undefined {
+    if (!attributes) return attributes
+    return scrubValue(attributes) as Record<string, unknown>
+}
+
+function sanitizeLog(log: Log): Log | null {
+    log.message = scrubText(log.message) as Log['message']
+    log.attributes = scrubAttributes(log.attributes)
+    return log
+}
+
 export async function initSentry(): Promise<void> {
     // Load env lazily: importing env.ts executes its startup validation, and
     // this module is also reachable from logger.ts in test environments that
@@ -64,9 +102,16 @@ export async function initSentry(): Promise<void> {
         environment: env.SENTRY_ENVIRONMENT,
         tracesSampleRate: 0,
         registerEsmLoaderHooks: false,
-        integrations: Sentry.getDefaultIntegrationsWithoutPerformance()
-            .filter(integration => !DISABLED_INTEGRATIONS.has(integration.name)),
+        enableLogs: true,
+        integrations: [
+            ...Sentry.getDefaultIntegrationsWithoutPerformance()
+                .filter(integration => !DISABLED_INTEGRATIONS.has(integration.name)),
+            Sentry.consoleLoggingIntegration({
+                levels: [...LOG_LEVEL_ORDER.slice(LOG_LEVEL_ORDER.indexOf(env.SENTRY_LOG_LEVEL))],
+            }),
+        ],
         beforeSend: sanitizeEvent,
+        beforeSendLog: sanitizeLog,
     })
 
     initialized = true

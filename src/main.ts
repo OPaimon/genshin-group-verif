@@ -16,6 +16,9 @@ import { flushSentry, initSentry } from './sentry.js'
 // Error-monitoring sidecar. No-op when SENTRY_DSN is empty/absent.
 await initSentry()
 
+// After Sentry is initialized so this startup line is captured as a Log too.
+logger.info(`[State] Using ${env.STATE_BACKEND} backend`)
+
 // Crash policy: capture, flush, exit. docker-compose restarts the container
 // (restart: always) — a long-running mtcute client with a possibly corrupted
 // connection state is safer restarted than kept alive. Sentry's own global
