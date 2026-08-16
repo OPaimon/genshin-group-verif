@@ -9,7 +9,9 @@
   生产构建是 `pnpm build` + `node --enable-source-maps dist/main.mjs`。
 - 构建产物 `dist/main.mjs` **不是完全 self-contained**：
   - esbuild 把 `better-sqlite3` 作为 external，mtcute 内部仍会 `import` 它，
-    因此运行时 `node_modules` 里必须有 `better-sqlite3`；
+    因此运行时 `node_modules` 里必须有 `better-sqlite3`，并且它需要能被
+    `dist/main.mjs` 直接解析（当前已作为直接依赖保留，`pnpm install --prod`
+    会把它放在顶层 `node_modules/better-sqlite3`）；
   - `@mtcute/wasm` 的 `.wasm` 文件从 `node_modules/@mtcute/wasm/` 按包路径加载；
   - `bot-data/quizzes.json` 按 `process.cwd()/bot-data/quizzes.json` 读取，
     构建脚本也会把源文件复制到 `dist/bot-data/`，但实际运行目录决定使用哪一份。
@@ -71,6 +73,10 @@ pnpm install --frozen-lockfile
 ```bash
 pnpm install --prod --frozen-lockfile
 ```
+
+> `better-sqlite3` 已作为直接依赖保留，因此 `--prod` 安装会保留它并放在顶层
+> `node_modules/better-sqlite3`。如果遇到模块解析问题，最稳妥的方式是直接执行
+> 完整的 `pnpm install --frozen-lockfile`。
 
 ## 5. 配置环境变量
 

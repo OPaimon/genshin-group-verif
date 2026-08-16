@@ -140,6 +140,9 @@ pnpm install --prod --frozen-lockfile
 
 > 注意：即使运行的是 `dist/main.mjs`，`node_modules` 里仍需要 `better-sqlite3`
 > 和 `@mtcute/wasm`，因为 esbuild 将 native addon 和 wasm 作为运行时外部资源处理。
+> `better-sqlite3` 已作为直接依赖保留，因此 `pnpm install --prod` 会把它安装到
+> 顶层 `node_modules/better-sqlite3`，`dist/main.mjs` 才能正确解析到它。
+> 如果遇到模块解析问题，最稳妥的方式是直接执行完整的 `pnpm install --frozen-lockfile`。
 
 ### 4. 配置环境变量
 
