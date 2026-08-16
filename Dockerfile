@@ -22,7 +22,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Production node_modules (better-sqlite3 native addon + @mtcute/wasm)
+# Production node_modules (better-sqlite3 native addon for @mtcute/node session
+# storage + @mtcute/wasm; state sqlite uses Node built-in node:sqlite)
 COPY --from=prod-deps /app/node_modules /app/node_modules
 
 # Bundled application

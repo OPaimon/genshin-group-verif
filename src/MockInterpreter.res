@@ -67,10 +67,10 @@ module State = {
   // session store:  sessionId → session
   let sessions: Map.t<string, session> = Map.make()
 
-  // token → sessionId  (reverse index, mirrors Redis token_map)
+  // token → sessionId  (reverse index, mirrors the persistent store's token map)
   let tokenIndex: Map.t<string, string> = Map.make()
 
-  // lookup: "chatId:userId" → sessionId  (mirrors Redis lookup key)
+  // lookup: "chatId:userId" → sessionId  (mirrors the persistent store's lookup key)
   let lookupIndex: Map.t<string, string> = Map.make()
 
   // cooldown set: "chatId:userId"

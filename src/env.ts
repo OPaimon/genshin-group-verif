@@ -1,15 +1,12 @@
-const { API_ID, API_HASH, BOT_TOKEN, LOG_PEER, ADMIN_IDS, AD_LIST_URL, STATE_BACKEND, STATE_SQLITE_PATH, REDIS_URL, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_LOG_LEVEL } = process.env
+const { API_ID, API_HASH, BOT_TOKEN, LOG_PEER, ADMIN_IDS, AD_LIST_URL, STATE_BACKEND, STATE_SQLITE_PATH, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_LOG_LEVEL } = process.env
 
 if (!API_ID || !API_HASH || !BOT_TOKEN || !LOG_PEER || Number.isNaN(Number(API_ID)) || Number.isNaN(Number(LOG_PEER))) {
     throw new Error('Invalid env: API_ID, API_HASH, BOT_TOKEN, and LOG_PEER are required.')
 }
 
 const stateBackend = STATE_BACKEND ?? 'memory'
-if (stateBackend !== 'memory' && stateBackend !== 'sqlite' && stateBackend !== 'redis') {
-    throw new Error('Invalid env: STATE_BACKEND must be one of "memory", "sqlite", "redis".')
-}
-if (stateBackend === 'redis' && !REDIS_URL) {
-    throw new Error('Invalid env: REDIS_URL is required when STATE_BACKEND=redis.')
+if (stateBackend !== 'memory' && stateBackend !== 'sqlite') {
+    throw new Error('Invalid env: STATE_BACKEND must be one of "memory", "sqlite".')
 }
 
 const adminIds = (ADMIN_IDS ?? '')
@@ -47,9 +44,7 @@ export const env = {
     // set to an empty string to disable the ad entirely.
     AD_LIST_URL: AD_LIST_URL ?? 'https://t.me/addlist/UEpWJGzDD6A1Y2I1',
     // Verification-state storage backend. memory = volatile (default);
-    // sqlite/redis survive restarts (main.ts re-arms timeout observers on boot).
+    // sqlite survives restarts (main.ts re-arms timeout observers on boot).
     STATE_BACKEND: stateBackend,
     STATE_SQLITE_PATH: STATE_SQLITE_PATH ?? 'bot-data/state.db',
-    // Required when STATE_BACKEND=redis, e.g. redis://localhost:6379
-    REDIS_URL: REDIS_URL ?? '',
 }
