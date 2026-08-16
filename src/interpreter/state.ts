@@ -1,6 +1,6 @@
 /**
  * StateSig.S — facade over the pluggable StateStore backend
- * (memory | sqlite | redis, selected via STATE_BACKEND).
+ * (memory | sqlite, selected via STATE_BACKEND; Redis is archived).
  *
  * Export names are the AppBridge.res binding surface — keep them stable.
  */
@@ -19,9 +19,7 @@ const SESSION_TTL_MS = 5 * 60_000 // 5 minutes
 const store: StateStore = createStore(
     env.STATE_BACKEND === 'sqlite'
         ? { backend: 'sqlite', path: env.STATE_SQLITE_PATH }
-        : env.STATE_BACKEND === 'redis'
-            ? { backend: 'redis', url: env.REDIS_URL }
-            : { backend: 'memory' },
+        : { backend: 'memory' },
 )
 console.log(`[State] Using ${env.STATE_BACKEND} backend`)
 

@@ -5,8 +5,12 @@
  * (save-with-indexes, claim-everything) instead of raw KV primitives: `claim`
  * arbitrates between competing terminal paths (answer callback vs. timeout)
  * and its all-or-nothing removal must live INSIDE the backend, where each
- * store has a native atomicity primitive — event-loop synchronicity (memory),
- * a transaction (SQLite), a Lua script (Redis).
+ * store has a native atomicity primitive — event-loop synchronicity (memory)
+ * or a transaction (SQLite).
+ *
+ * The Redis backend was moved out of the main package; see
+ * `archive/state-redis/` and the issue tracking its reintroduction as an
+ * optional backend.
  */
 
 import type { Message_location, Peer_unknown, session } from '../../Domain.gen.js'
@@ -57,7 +61,6 @@ export interface StateStore {
 export type StateBackendConfig
     = | { backend: 'memory' }
         | { backend: 'sqlite', path: string }
-        | { backend: 'redis', url: string, keyPrefix?: string }
 
 // ── Serialization (shared by persistent backends) ───────────
 //
@@ -65,8 +68,8 @@ export type StateBackendConfig
 // runtime, and ReScript's `option` maps None ↔ undefined — JSON.stringify
 // drops the absent verificationLocation key and a missing key reads back as
 // undefined, i.e. None. The envelope carries the precomputed lookup key so
-// backends (in particular the Redis Lua claim script) never re-derive it from
-// numeric ids, whose string formatting differs between JS and Lua.
+// persistent backends can index sessions without re-deriving it from numeric
+// ids, whose string formatting can differ between runtimes.
 
 export interface SessionEnvelope {
     /** Lookup key ("chatId:userId") — precomputed via peerKey. */

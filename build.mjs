@@ -6,8 +6,8 @@
  *   • We ship an application, not a library — no DTS, no CJS+ESM dual-format.
  *   • ReScript .res.mjs inputs need `resolveExtensions` (1 line in esbuild,
  *     plugin in wrappers).
- *   • Native addon (better-sqlite3) + WASM (@mtcute/wasm) externals are
- *     trivial with esbuild's `external` + `loader` options.
+ *   • Native addon (`better-sqlite3` via `@mtcute/node`) is external; WASM
+ *     (`@mtcute/wasm`) is handled with esbuild's `loader` option.
  *   • Zero abstraction tax — ~80 LOC, no wrapper to debug.
  *
  * Usage:
@@ -39,7 +39,7 @@ const result = await esbuild.build({
     target: 'node22',
     format: 'esm',
 
-    // Native addon — resolved from node_modules at runtime
+    // Native addon used by @mtcute/node session storage — resolved at runtime
     external: ['better-sqlite3'],
 
     minify: true,

@@ -3,7 +3,7 @@
  * exact same contract — import runStoreContract from a *.test.ts file and
  * hand it a store factory.
  *
- * TTL tests use real (short) timers, not mocks: SQLite and Redis expire
+ * TTL tests use real (short) timers, not mocks: persistent backends expire
  * against the wall clock, so mocked time would test nothing.
  */
 
