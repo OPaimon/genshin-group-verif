@@ -9,6 +9,7 @@ import type { Message_location, Peer_id, Peer_unknown, Peer_user, session } from
 import type { StateStore } from './state/store.js'
 
 import { env } from '../env.js'
+import { logger } from '../logger.js'
 import { peerKey } from './peer.js'
 import { createStore } from './state/factory.js'
 
@@ -23,7 +24,6 @@ const store: StateStore = createStore(
             ? { backend: 'redis', url: env.REDIS_URL }
             : { backend: 'memory' },
 )
-console.log(`[State] Using ${env.STATE_BACKEND} backend`)
 
 /** The live store — used by main.ts for restart recovery (session.listAll). */
 export function stateStore(): StateStore {
@@ -43,9 +43,9 @@ export async function session_waitAndPeek(sessionId: string, delaySec: number): 
     const session = await store.session.getById(sessionId)
 
     if (session) {
-        console.log(`[Observer] Session ${sessionId} is still active after ${delaySec}s. Triggering timeout logic.`)
+        logger.debug(`[Observer] Session ${sessionId} is still active after ${delaySec}s. Triggering timeout logic.`)
     } else {
-        console.log(`[Observer] Session ${sessionId} was already handled/cleaned up. Skipping.`)
+        logger.debug(`[Observer] Session ${sessionId} was already handled/cleaned up. Skipping.`)
     }
 
     return session

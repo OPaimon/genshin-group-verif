@@ -8,6 +8,8 @@ import type { quiz } from '../Domain.gen.js'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import { logger } from '../logger.js'
+
 /** Raw JSON shape from bot-data/quizzes.json (PascalCase, matching C# bot format) */
 interface RawQuiz {
     Id: number
@@ -42,9 +44,9 @@ async function loadQuizzesFromFile(): Promise<quiz[]> {
 export async function initQuizBank(): Promise<void> {
     try {
         quizBank = await loadQuizzesFromFile()
-        console.log(`[QuizSource] Loaded ${quizBank.length} quizzes from ${QUIZ_FILE_PATH}`)
+        logger.info(`[QuizSource] Loaded ${quizBank.length} quizzes from ${QUIZ_FILE_PATH}`)
     } catch (err) {
-        console.error('[QuizSource] Failed to load quizzes at startup:', err)
+        logger.error('[QuizSource] Failed to load quizzes at startup:', err)
         quizBank = []
     }
 }
@@ -58,11 +60,11 @@ export async function quiz_getRandom(): Promise<quiz | undefined> {
 export async function quiz_reload(): Promise<{ TAG: 'Ok', _0: void } | { TAG: 'Error', _0: string }> {
     try {
         quizBank = await loadQuizzesFromFile()
-        console.log(`[QuizSource] Reloaded ${quizBank.length} quizzes`)
+        logger.info(`[QuizSource] Reloaded ${quizBank.length} quizzes`)
         return { TAG: 'Ok', _0: undefined }
     } catch (err: any) {
         const msg = err?.message ?? String(err)
-        console.error('[QuizSource] Reload failed:', msg)
+        logger.error('[QuizSource] Reload failed:', msg)
         return { TAG: 'Error', _0: msg }
     }
 }

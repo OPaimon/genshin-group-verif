@@ -10,6 +10,29 @@ import { initQuizBank } from './interpreter/quizSource.js'
 import { setRuntime } from './interpreter/runtime.js'
 import { stateStore } from './interpreter/state.js'
 import { wasAddedByAdmin } from './joinPolicy.js'
+import { logger } from './logger.js'
+import { flushSentry, initSentry } from './sentry.js'
+
+// Error-monitoring sidecar. No-op when SENTRY_DSN is empty/absent.
+await initSentry()
+
+// After Sentry is initialized so this startup line is captured as a Log too.
+logger.info(`[State] Using ${env.STATE_BACKEND} backend`)
+
+// Crash policy: capture, flush, exit. docker-compose restarts the container
+// (restart: always) — a long-running mtcute client with a possibly corrupted
+// connection state is safer restarted than kept alive. Sentry's own global
+// handler integrations are disabled in sentry.ts so this stays the single
+// place that owns the exit.
+process.on('uncaughtException', (err) => {
+    logger.error('[uncaughtException]', err)
+    void flushSentry().finally(() => process.exit(1))
+})
+
+process.on('unhandledRejection', (reason) => {
+    logger.error('[unhandledRejection]', reason)
+    void flushSentry().finally(() => process.exit(1))
+})
 
 const tg = new TelegramClient({
     apiId: env.API_ID,
@@ -23,7 +46,7 @@ const dp = Dispatcher.for(tg)
 // unhandled rejection. Log and mark handled — the verification flow's own
 // safety net (timeout observer) resolves any half-finished session.
 dp.onError((err, update) => {
-    console.error(`[Dispatcher] Handler error on ${update.name}:`, err)
+    logger.error(`[Dispatcher] Handler error on ${update.name}:`, err)
     return true
 })
 
@@ -31,7 +54,7 @@ dp.onError((err, update) => {
 setRuntime(tg)
 await initQuizBank()
 
-console.log('🚀 Starting bot')
+logger.info('🚀 Starting bot')
 
 // ── /ping health check ─────────────────────────────────────
 
@@ -39,7 +62,7 @@ dp.onNewMessage(
     filters.command('ping'),
     async (msg) => {
         await msg.answerText('Pong')
-        console.log('Handled /ping command')
+        logger.info('Handled /ping command')
     },
 )
 
@@ -49,7 +72,7 @@ dp.onNewMessage(
     filters.command('reload'),
     async (msg) => {
         if (!env.ADMIN_IDS.includes(msg.sender.id)) {
-            console.log(`[Reload] Ignored /reload from unauthorized user=${msg.sender.id}`)
+            logger.info(`[Reload] Ignored /reload from unauthorized user=${msg.sender.id}`)
             return
         }
         const result = await AppBridge.QuizSource.reload()
@@ -67,7 +90,7 @@ dp.onBotChatJoinRequest(async (req) => {
     const chatId = toUnknownPeerId(Number(req.chat.id))
     const userId = toUserPeerId(Number(req.user.id))
 
-    console.log(`[Event] Join request from user=${userId as number} chat=${chatId as number}`)
+    logger.info(`[Event] Join request from user=${userId as number} chat=${chatId as number}`)
 
     const input: start_input = {
         userId,
@@ -97,13 +120,13 @@ dp.onChatMemberUpdate(
         const actorId = Number(upd.actor.id)
 
         if (await wasAddedByAdmin(tg, chatId as number, userId as number, actorId)) {
-            console.log(
+            logger.info(
                 `[Event] User ${userId as number} was added/approved by admin ${actorId} in ${chatId as number}, skipping verification`,
             )
             return
         }
 
-        console.log(`[Event] User ${userId as number} joined group ${chatId as number}`)
+        logger.info(`[Event] User ${userId as number} joined group ${chatId as number}`)
 
         const input: start_input = {
             userId,
@@ -138,7 +161,7 @@ dp.onCallbackQuery(async (q) => {
 // ── Start the client ───────────────────────────────────────
 
 const me = await tg.start({ botToken: env.BOT_TOKEN })
-console.log(`✅ Logged in as @${me.username}`)
+logger.info(`✅ Logged in as @${me.username}`)
 
 // ── Restart recovery ───────────────────────────────────────
 // With a persistent backend, sessions survive a restart but their in-process
@@ -151,5 +174,5 @@ for (const session of pendingSessions) {
     AppBridge.App.armTimeoutObserver(session)
 }
 if (pendingSessions.length > 0) {
-    console.log(`[Recovery] Re-armed timeout observers for ${pendingSessions.length} pending session(s)`)
+    logger.info(`[Recovery] Re-armed timeout observers for ${pendingSessions.length} pending session(s)`)
 }
