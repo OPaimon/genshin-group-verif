@@ -1,4 +1,4 @@
-const { API_ID, API_HASH, BOT_TOKEN, LOG_PEER, ADMIN_IDS, AD_LIST_URL, STATE_BACKEND, STATE_SQLITE_PATH, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_LOG_LEVEL } = process.env
+const { API_ID, API_HASH, BOT_TOKEN, LOG_PEER, ADMIN_IDS, AD_LIST_URL, STATE_BACKEND, STATE_SQLITE_PATH, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_LOG_LEVEL, SENTRY_SCRUB_PII } = process.env
 
 if (!API_ID || !API_HASH || !BOT_TOKEN || !LOG_PEER || Number.isNaN(Number(API_ID)) || Number.isNaN(Number(LOG_PEER))) {
     throw new Error('Invalid env: API_ID, API_HASH, BOT_TOKEN, and LOG_PEER are required.')
@@ -24,6 +24,9 @@ if (logLevel !== 'debug' && logLevel !== 'info' && logLevel !== 'warn' && logLev
     throw new Error('Invalid env: SENTRY_LOG_LEVEL must be one of "debug", "info", "warn", "error".')
 }
 
+const scrubPii = SENTRY_SCRUB_PII !== undefined
+    && ['true', '1', 'yes'].includes(SENTRY_SCRUB_PII.toLowerCase().trim())
+
 export const env = {
     API_ID: Number(API_ID),
     API_HASH,
@@ -47,4 +50,5 @@ export const env = {
     // sqlite survives restarts (main.ts re-arms timeout observers on boot).
     STATE_BACKEND: stateBackend,
     STATE_SQLITE_PATH: STATE_SQLITE_PATH ?? 'bot-data/state.db',
+    SENTRY_SCRUB_PII: scrubPii,
 }

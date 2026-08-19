@@ -110,8 +110,8 @@ export async function initSentry(): Promise<void> {
                 levels: [...LOG_LEVEL_ORDER.slice(LOG_LEVEL_ORDER.indexOf(env.SENTRY_LOG_LEVEL))],
             }),
         ],
-        beforeSend: sanitizeEvent,
-        beforeSendLog: sanitizeLog,
+        beforeSend: env.SENTRY_SCRUB_PII ? sanitizeEvent : undefined,
+        beforeSendLog: env.SENTRY_SCRUB_PII ? sanitizeLog : undefined,
     })
 
     initialized = true
