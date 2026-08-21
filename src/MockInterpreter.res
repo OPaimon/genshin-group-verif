@@ -120,6 +120,8 @@ let allocMsgId = (): Message.id => {
 
 // 测试注入: true 时 presentChallenge 模拟发送失败 (返回 None)
 let failPresentChallenge: ref<bool> = ref(false)
+exception CooldownApplyFailure
+let failCooldownApply: ref<bool> = ref(false)
 
 // ── Master reset ────────────────────────────────────────────
 
@@ -132,6 +134,7 @@ let reset = () => {
   ]
   nextMsgId := 1000
   failPresentChallenge := false
+  failCooldownApply := false
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -203,8 +206,11 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
 
     let apply = (~chatId, ~userId, ~durationSec) => {
       let key = State.lookupKey(~chatId, ~userId)
-      State.cooldowns->Set.add(key)->ignore
       record(`Cooldown.apply  ${key} ${durationSec->Int.toString}s`)
+      if failCooldownApply.contents {
+        throw(CooldownApplyFailure)
+      }
+      State.cooldowns->Set.add(key)->ignore
     }
   }
 

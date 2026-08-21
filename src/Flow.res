@@ -248,13 +248,6 @@ module Make = (
             // 回答错误
             I.acknowledgeClick(~queryId, ~text=`回答错误，验证失败。`, ~showAlert=true)
             ->bind(() =>
-              S.Cooldown.apply(
-                ~chatId=session.chatId,
-                ~userId=session.userId,
-                ~durationSec=cooldownDurationSec,
-              )
-            )
-            ->bind(() =>
               rejectAndLog(
                 ~session,
                 ~loc=messageLocation,
@@ -264,6 +257,13 @@ module Make = (
             )
             ->bind(() =>
               I.scheduleMessageCleanup(~loc=messageLocation, ~delaySec=messageDeletionDelaySec)
+            )
+            ->bind(() =>
+              S.Cooldown.apply(
+                ~chatId=session.chatId,
+                ~userId=session.userId,
+                ~durationSec=cooldownDurationSec,
+              )
             )
           }
         )

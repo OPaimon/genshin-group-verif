@@ -330,18 +330,51 @@ describe("handleCallback", () => {
     traceHas("→ won")
     traceNth(2, "acknowledgeClick")
     traceHas("回答错误")
-    traceHas("Cooldown.apply")
-    traceHas("updateStatus")
+    traceNth(3, "updateStatus")
     traceHas("验证失败")
+    traceNth(4, "enforceDecision")
     traceHas("Punish_soft")
+    traceNth(5, "logActivity")
     traceHas("kind=Fail_error")
-    traceHas("scheduleCleanup")
+    traceNth(6, "scheduleCleanup")
+    traceNth(7, "Cooldown.apply")
 
     sessionGone(sess.id)
     sessionCount(0)
     tokenCount(0)
     lookupCount(0)
     hasCooldown("-100:42")
+  })
+
+  test("wrong answer — cooldown failure happens after punishment and audit", () => {
+    let sess = seedSession()
+    let wrong = sess.optionsWithTokens
+      ->Array.find(o => o.token != sess.correctToken)
+      ->Option.getOrThrow
+    MockInterpreter.failCooldownApply := true
+
+    let failed = try {
+      MockInterpreter.TestFlow.handleCallback({
+        callbackData: wrong.token,
+        queryId: queryId(20),
+        userId: user(42.0),
+        messageLocation: sess.verificationLocation->Option.getOrThrow,
+      })
+      false
+    } catch {
+    | MockInterpreter.CooldownApplyFailure => true
+    }
+
+    ok(failed, ~message="Cooldown.apply failure should still propagate")
+    traceNth(3, "updateStatus")
+    traceNth(4, "enforceDecision")
+    traceHas("Punish_soft")
+    traceNth(5, "logActivity")
+    traceHas("kind=Fail_error")
+    traceNth(6, "scheduleCleanup")
+    traceNth(7, "Cooldown.apply")
+    sessionGone(sess.id)
+    noCooldowns()
   })
 
   test("user mismatch — reject silently, session untouched", () => {
