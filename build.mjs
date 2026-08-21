@@ -65,10 +65,17 @@ const result = await esbuild.build({
     },
 })
 
-// ── 3. Copy runtime data ──────────────────────────────────────
+// ── 3. Copy optional runtime data ─────────────────────────────
+const quizSrc = resolve(root, 'bot-data/quizzes.json')
 const quizDst = resolve(dist, 'bot-data/quizzes.json')
-mkdirSync(dirname(quizDst), { recursive: true })
-cpSync(resolve(root, 'bot-data/quizzes.json'), quizDst)
+let quizCopied = false
+if (existsSync(quizSrc)) {
+    mkdirSync(dirname(quizDst), { recursive: true })
+    cpSync(quizSrc, quizDst)
+    quizCopied = true
+} else {
+    console.warn('⚠️  bot-data/quizzes.json is missing; skipped quiz-bank copy. Provide the file at runtime before starting the bot.')
+}
 
 // ── 4. Report ─────────────────────────────────────────────────
 writeFileSync(resolve(dist, 'metafile.json'), JSON.stringify(result.metafile))
@@ -86,5 +93,5 @@ function kb(f) {
 console.log('\n✅ Build complete → dist/')
 console.log(`   main.mjs      ${kb(resolve(dist, 'main.mjs'))}`)
 console.log(`   main.mjs.map  ${kb(resolve(dist, 'main.mjs.map'))}`)
-console.log('   quizzes.json  ✓')
+console.log(`   quizzes.json  ${quizCopied ? '✓' : 'skipped (provide at runtime)'}`)
 console.log('\n   Run:  node --enable-source-maps dist/main.mjs')

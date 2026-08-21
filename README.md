@@ -39,7 +39,7 @@ pnpm --version   # 期望 10.17.1
 # 2. 安装依赖
 pnpm install --frozen-lockfile
 
-# 3. 准备题库（构建/运行前必须存在）
+# 3. 准备题库（运行前必须存在；构建时可省略）
 # 参考下方「题库 quizzes.json」
 # 创建 bot-data/quizzes.json
 
@@ -80,13 +80,14 @@ pnpm start
 
 ## 题库 quizzes.json
 
-`bot-data/quizzes.json` **不会被 git 跟踪**，属于需要手动提供的数据文件。
+`bot-data/quizzes.json` **不会被 git 跟踪**，属于需要手动提供的运行时数据文件。
 
-- 构建脚本 `build.mjs` 会读取并复制该文件到 `dist/bot-data/`
+- 构建脚本在文件存在时将其复制到 `dist/bot-data/`
+- 文件缺失时，构建会输出一条明确警告并继续，不会生成占位题库
 - 运行时 `src/interpreter/quizSource.ts` 读取 `process.cwd()/bot-data/quizzes.json`
-- 如果该文件缺失，`pnpm build` 会直接失败；即使构建成功，运行时也会因题库为空而拒绝新的验证请求
+- 运行时缺少或无法读取题库时，机器人保持运行并拒绝新的验证请求；提供或修复文件后可执行 `/reload` 或重启恢复
 
-因此部署前必须手动创建 `bot-data/quizzes.json`。最小合法格式如下：
+因此运行机器人前必须手动创建 `bot-data/quizzes.json`。最小合法格式如下：
 
 ```json
 [
@@ -165,13 +166,13 @@ STATE_SQLITE_PATH=bot-data/state.db
 pnpm build
 ```
 
-构建输出：
+构建输出包含：
 
 ```text
 dist/main.mjs
 dist/main.mjs.map
-dist/bot-data/quizzes.json
 dist/metafile.json
+dist/bot-data/quizzes.json  # 仅当构建时源题库存在
 ```
 
 ### 6. 运行
@@ -266,13 +267,12 @@ cp bot-data/state.db bot-data/state.db.bak
 
 仓库附带 `Dockerfile` 和 `docker-compose.yaml`。
 
-> 构建镜像时同样需要 `bot-data/quizzes.json` 已存在，否则 `pnpm build` 会在 Docker 构建阶段失败。
+> 构建镜像时不需要把 `bot-data/quizzes.json` 放入构建上下文。题库属于运行时数据，应在启动前放到宿主机的 `./bot-data/quizzes.json`；缺失时镜像仍能构建，但验证服务会保持不可用。
 
 ```bash
-# 先准备 bot-data/quizzes.json
+# 在宿主机准备运行时题库
 mkdir -p bot-data
 # 将题库放到 bot-data/quizzes.json
-
 # 构建并启动
 docker compose up -d --build
 ```

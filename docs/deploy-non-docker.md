@@ -13,13 +13,14 @@
     `dist/main.mjs` 直接解析（当前已作为直接依赖保留，`pnpm install --prod`
     会把它放在顶层 `node_modules/better-sqlite3`）；
   - `@mtcute/wasm` 的 `.wasm` 文件从 `node_modules/@mtcute/wasm/` 按包路径加载；
-  - `bot-data/quizzes.json` 按 `process.cwd()/bot-data/quizzes.json` 读取，
-    构建脚本也会把源文件复制到 `dist/bot-data/`，但实际运行目录决定使用哪一份。
+  - `bot-data/quizzes.json` 按 `process.cwd()/bot-data/quizzes.json` 读取；
+    源文件存在时构建脚本会将其复制到 `dist/bot-data/`，缺失时则警告并继续。
+    实际运行目录决定使用哪一份。
 - 代码使用了 Node 内置 `node:sqlite`，而且它被静态打包进 bundle；
   所以 **Node.js 必须 >= 22.13**（代码注释：`node:sqlite` 自 Node 22.13 / 23.4 起
   无需 flag）。
-- `bot-data/quizzes.json` 目前被 `bot-data/.gitignore` 忽略，**fresh clone 后执行
-  `pnpm build` 会因缺少该文件而失败**。部署前必须显式提供该文件（见第 3 节）。
+- `bot-data/quizzes.json` 被 `bot-data/.gitignore` 忽略。fresh clone 可以直接构建，
+  但启动验证服务前必须显式提供该运行时文件（见第 3 节）。
 
 ## 1. 环境要求
 
@@ -44,7 +45,8 @@ pnpm --version   # 期望 10.17.1
 `bot-data/quizzes.json` 没有被 git 跟踪，因此：
 
 - 如果已有生产题库文件，直接放到 `bot-data/quizzes.json`；
-- 如果没有，先创建最小合法文件，格式如下：
+- 如果只需要生成构建产物，可以暂时不提供；构建会警告并继续；
+- 启动机器人前仍必须提供合法题库，否则新验证请求会被拒绝。
 
 ```json
 [
@@ -57,8 +59,8 @@ pnpm --version   # 期望 10.17.1
 ]
 ```
 
-> 缺少该文件时 `pnpm build` 会在复制阶段报
-> `ENOENT ... bot-data/quizzes.json`，而不是生成一个空题库。
+> 缺少该文件时 `pnpm build` 会输出跳过复制的警告并成功结束，不会生成空题库。
+> 文件存在但复制失败时，构建仍会失败。
 
 ## 4. 安装依赖
 
@@ -114,8 +116,8 @@ pnpm build
 ```
 dist/main.mjs
 dist/main.mjs.map
-dist/bot-data/quizzes.json
 dist/metafile.json
+dist/bot-data/quizzes.json  # 仅当构建时源题库存在
 ```
 
 构建脚本会先执行 ReScript 编译（`res:build`），再交给 esbuild 打包。
@@ -212,8 +214,7 @@ cp bot-data/state.db bot-data/state.db.bak
 ## 11. 建议改进
 
 - 在 `package.json` 增加 `engines.node`，避免在 Node < 22.13 上误启动。
-- `bot-data/quizzes.json` 应纳入版本管理，或至少让构建脚本在缺失时给出明确
-  错误/允许从示例生成；否则 fresh clone 构建会失败。
+- 保持真实题库不进入版本库或镜像层；fresh clone 构建应继续覆盖缺失题库场景。
 - `.env.example` 当前缺少 `STATE_BACKEND`、`STATE_SQLITE_PATH` 等已支持的变量，建议补齐。
 - 当前仓库没有 CI workflow；建议增加 GitHub Actions 运行
   `pnpm lint`、`pnpm test`、`pnpm build`，防止 fresh clone 与构建问题再次出现。

@@ -43,7 +43,10 @@ export async function initQuizBank(): Promise<void> {
         quizBank = await loadQuizzesFromFile()
         logger.info(`[QuizSource] Loaded ${quizBank.length} quizzes from ${QUIZ_FILE_PATH}`)
     } catch (err) {
-        logger.error('[QuizSource] Failed to load quizzes at startup:', err)
+        logger.error(
+            `[QuizSource] Failed to load quiz bank from ${QUIZ_FILE_PATH}. Verification is unavailable until the file is provided or fixed; run /reload or restart to recover:`,
+            err,
+        )
         quizBank = []
     }
 }

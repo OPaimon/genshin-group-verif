@@ -77,7 +77,8 @@ git rev-parse HEAD
 
 ### 2. 准备题库
 
-`bot-data/quizzes.json` 不会被 git 跟踪，迁移后仍必须存在，否则 `pnpm build` 会失败。
+`bot-data/quizzes.json` 不会被 git 跟踪。迁移构建可以在该文件缺失时完成，
+但运行前仍必须恢复或创建题库，否则机器人会拒绝新的验证请求。
 
 ```bash
 mkdir -p bot-data
@@ -173,8 +174,8 @@ pnpm build
 ```text
 dist/main.mjs
 dist/main.mjs.map
-dist/bot-data/quizzes.json
 dist/metafile.json
+dist/bot-data/quizzes.json  # 仅当构建时源题库存在
 ```
 
 ### 6. 冒烟测试
@@ -219,7 +220,8 @@ journalctl -u genshin-group-verif -f
 
 #### Docker / docker-compose
 
-构建镜像前确保 `bot-data/quizzes.json` 已存在：
+镜像构建不要求题库进入构建上下文。启动前应在宿主机恢复
+`bot-data/quizzes.json`，由 compose volume 在运行时挂载：
 
 ```bash
 docker compose up -d --build

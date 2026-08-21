@@ -3,3 +3,5 @@ node_modules
 .gitignore
 *.md
 dist
+bot-data/quizzes.json
+bot-data/quizzes.json:*
