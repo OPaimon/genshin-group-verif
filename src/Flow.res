@@ -2,8 +2,8 @@ open Domain
 open Utils
 
 let messageDeletionDelaySec = 10
-let sessionCleanupDelaySec = 60
-let sessionCleanupDelayMs = Int.toFloat(sessionCleanupDelaySec * 1000)
+let verificationTimeoutSec = 60
+let verificationTimeoutMs = Int.toFloat(verificationTimeoutSec * 1000)
 let cooldownDurationSec = 60
 
 module Make = (
@@ -197,7 +197,7 @@ module Make = (
                         context,
                         optionsWithTokens: quiz.optionsWithTokens,
                         verificationLocation: None,
-                        deadlineAt: Some(nowMs +. sessionCleanupDelayMs),
+                        deadlineAt: Some(nowMs +. verificationTimeoutMs),
                       }
                     let options = quiz.optionsWithTokens->Array.map(o => (o.optionText, o.token))
                     let dest = targetChat(session)
@@ -219,7 +219,7 @@ module Make = (
                             ~userFirstName,
                             ~question=quiz.question,
                             ~options,
-                            ~timeoutSec=sessionCleanupDelaySec,
+                            ~timeoutSec=verificationTimeoutSec,
                           )
                         }
                         ->bind(sent =>

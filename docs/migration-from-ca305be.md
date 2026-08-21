@@ -8,8 +8,7 @@
 ## 环境要求
 
 - **Node.js**：当前代码使用 Node 内置 `node:sqlite`（见 `src/interpreter/state/sqliteStore.ts`），
-  因此建议运行 **Node.js >= 22.13**。注意 `package.json` 目前还没有 `engines` 字段，
-  不会强制拦截旧版本 Node，部署时需自行确保版本满足要求。
+  因此必须运行 **Node.js >= 22.13**；`package.json` 的 `engines.node` 与该要求一致。
 - **pnpm**：与 lockfile 匹配，当前固定 `pnpm@10.17.1`。
 
 ## 迁移前后主要变化

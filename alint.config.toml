@@ -1,0 +1,47 @@
+[[config.group]]
+ignores = [
+    "**/*.res.mjs",
+    "**/*.gen.ts",
+    "**/*.gen.tsx",
+    "dist/**",
+    "lib/**",
+    "bot-data/**",
+]
+
+[[config.group]]
+
+[config.group.ignore]
+gitignore = true
+
+[[config.group]]
+files = [ "src/**/*.ts" ]
+ignores = [
+    "src/**/*.test.ts",
+    "src/interpreter/testEnv.ts",
+]
+
+[config.group.plugins]
+js = "@alint-js/plugin-js@0.6.0"
+simplicity = "@alint-js/plugin-simplicity@0.6.0"
+
+[config.group.rules]
+"js/no-redundant-binding" = "warn"
+"simplicity/no-duplicated-helper" = "warn"
+
+[config.group.settings.simplicity]
+judge = false
+
+[[config.group]]
+files = [ "src/**/*.res" ]
+ignores = [
+    "src/**/*Test.res",
+    "src/MockInterpreter.res",
+    "src/NodeTest.res",
+]
+language = "plaintext"
+
+[config.group.plugins]
+slop = "./.alint-rules/slop"
+
+[config.group.rules]
+"slop/review" = "warn"

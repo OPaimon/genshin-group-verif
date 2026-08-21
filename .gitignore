@@ -10,3 +10,6 @@ dist/
 /lib/
 .bsb.lock
 *.res.mjs
+.alintcache
+.alint/plugins/store/
+.omp/

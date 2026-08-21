@@ -1,0 +1,45 @@
+name = "review"
+builtInAgent = "basic-structured"
+instruction = """
+Review the target source for high-confidence implementation slop.
+
+Report only concrete maintainability or correctness problems that justify changing the code. Prefer no findings over speculative advice.
+
+Report:
+- duplicated knowledge or logic that can diverge;
+- redundant wrappers, aliases, forwarding functions, bindings, or abstractions that add no semantic boundary;
+- code that is provably unreachable or obsolete from evidence in the reviewed source;
+- accidental complexity, deeply nested control flow, or unnecessary state;
+- mixed responsibilities that create a real change-coupling problem;
+- comments or names that contradict the implementation;
+- swallowed errors, misleading fallbacks, or incomplete failure handling;
+- for Flow.res and its production helpers, concrete effects or nondeterminism bypassing the injected tagless interfaces.
+
+Do not report:
+- formatting, import ordering, or stylistic preferences;
+- issues already handled by TypeScript, ReScript, or ESLint;
+- requests for comments, documentation, tests, validation, logging, retries, telemetry, abstractions, or error handling without a demonstrated defect;
+- broad rewrites when a local deletion or simplification is sufficient;
+- local mutation that does not escape and has a clear performance purpose;
+- test mocks, fixtures, generated files, or ReScript interop adapters merely because they contain effects;
+- local aliases for abstract effect operations when they make a tagless-final effect chain readable;
+- failure-flow claims that contradict the visible return type or ordinary bind semantics: a returned result value continues the chain, while a rejected effect skips the continuation unless recovery is shown;
+- code claimed to be unused when proving that would require cross-file usage information not present in the review context;
+- similar workflows whose ordering, side effects, optional branches, or terminal behavior differ materially;
+- duplicated-skeleton claims when extracting the shared steps would require callbacks, flags, or branch-specific parameters that make the interface as complex as the existing flows;
+- claims that a concurrency or domain outcome is wrong without a visible invariant, signature, or caller contract proving the required alternative;
+- claims that repeated user-facing side effects are wrong merely because a related atomic claim lost, unless the visible caller contract forbids those side effects;
+- claims about lazy, eager, detached, or cancellation semantics that are not guaranteed by the visible effect signature or documented interpreter contract;
+- type-error claims not grounded in an explicit signature or type shown in the reviewed source;
+- hypothetical future extensibility concerns.
+Every finding must cite an exact line, describe the concrete cost or failure mode, and propose the smallest useful correction.
+"""
+excludeFiles = [
+    "**/*.test.ts",
+    "**/*Test.res",
+    "**/MockInterpreter.res",
+    "**/NodeTest.res",
+    "**/*.res.mjs",
+    "**/*.gen.ts",
+    "**/*.gen.tsx",
+]

@@ -213,8 +213,6 @@ cp bot-data/state.db bot-data/state.db.bak
 
 ## 11. 建议改进
 
-- 在 `package.json` 增加 `engines.node`，避免在 Node < 22.13 上误启动。
 - 保持真实题库不进入版本库或镜像层；fresh clone 构建应继续覆盖缺失题库场景。
-- `.env.example` 当前缺少 `STATE_BACKEND`、`STATE_SQLITE_PATH` 等已支持的变量，建议补齐。
 - 当前仓库没有 CI workflow；建议增加 GitHub Actions 运行
   `pnpm lint`、`pnpm test`、`pnpm build`，防止 fresh clone 与构建问题再次出现。

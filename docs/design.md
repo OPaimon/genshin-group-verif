@@ -41,7 +41,7 @@ src/interpreter/            effect implementations (the "interpreter")
   messages.ts               user-facing text and LOG_PEER audit message formatting
   quizSource.ts             quiz bank load / hot reload from bot-data/quizzes.json
   state.ts                  state facade: store factory, cooldown, sessions, timeout observers
-  state/                    memory / sqlite / redis state backends behind one contract
+  state/                    memory / sqlite state backends behind one contract
 src/env.ts                  hand-rolled env parsing and validation
 src/sentry.ts               Sentry init, PII scrubbing, capture/flush helpers
 src/logger.ts               single thin logging entry point (console + Sentry sinks)
@@ -129,7 +129,6 @@ There are **three distinct surfaces**, and they are not interchangeable:
 - Benign known cases (`MESSAGE_NOT_MODIFIED`) stay silent.
 - Deliberately swallowed errors are still recorded at an explicit level:
   - `joinPolicy` lookup failure → `warn`
-  - `redisStore.close` failure → `warn`
   - timed message-cleanup delete failures → `debug`
 
 Sentry is **error monitoring + log forwarding**, not tracing or performance
@@ -171,7 +170,8 @@ only a failure to send to LOG_PEER itself becomes a Sentry error event.
 
 ## 5. Deployment and configuration
 
-- Runtime: Node 22 Alpine (see `Dockerfile`).
+- Runtime: Node 22.13+ on Alpine (see `Dockerfile`); this minimum is required
+  because the bundled sqlite backend imports `node:sqlite`.
 - Production artifact: single-file esbuild bundle `dist/main.mjs` + sourcemap,
   launched with `node --enable-source-maps`.
 - `docker-compose`: one `bot` service, `restart: always`, `.env` passed via
@@ -190,9 +190,11 @@ only a failure to send to LOG_PEER itself becomes a Sentry error event.
 | `SENTRY_LOG_LEVEL` | no | minimum level sent to Sentry Logs; default `info` |
 | `ADMIN_IDS` | no | comma-separated user ids allowed `/reload` |
 | `AD_LIST_URL` | no | ad link appended to verification messages |
-| `STATE_BACKEND` | no | `memory` (default) / `sqlite` / `redis` |
+| `STATE_BACKEND` | no | `memory` (default, including compose) / `sqlite` |
 | `STATE_SQLITE_PATH` | no | sqlite file path (default `bot-data/state.db`) |
-| `REDIS_URL` | no | required when `STATE_BACKEND=redis` |
+
+Redis state configuration is not active; optional reintroduction is tracked in
+GitHub issue #29.
 
 ## 6. Sentry adoption criteria and rollback
 

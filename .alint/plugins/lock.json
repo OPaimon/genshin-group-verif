@@ -1,0 +1,33 @@
+{
+    "plugins": {
+        "js": {
+            "alias": "js",
+            "entry": ".alint/plugins/store/@alint-js/plugin-js/0.6.0/package/dist/index.mjs",
+            "integrity": "sha512-1KF/s0QQPZYdMgHYRg6khnfOtaRX2vQJ0uckWU2oD6UGpIvA8VD8hvqsPpK52w/+Xie+m3hmxPTcBIKtU0HfCA==",
+            "name": "@alint-js/plugin-js",
+            "registry": "https://registry.npmjs.org/",
+            "specifier": "@alint-js/plugin-js@0.6.0",
+            "tarball": "https://registry.npmjs.org/@alint-js/plugin-js/-/plugin-js-0.6.0.tgz",
+            "type": "registry",
+            "version": "0.6.0"
+        },
+        "simplicity": {
+            "alias": "simplicity",
+            "entry": ".alint/plugins/store/@alint-js/plugin-simplicity/0.6.0/package/dist/index.mjs",
+            "integrity": "sha512-tacbi9mx75oIT4zDVVdgjeyjg8cm97R4Q+Z0yZBJlNVgiZQwOW4jnIaPOPm8tPQ5tp1Fdh/25OckF9SwHuZYGw==",
+            "name": "@alint-js/plugin-simplicity",
+            "registry": "https://registry.npmjs.org/",
+            "specifier": "@alint-js/plugin-simplicity@0.6.0",
+            "tarball": "https://registry.npmjs.org/@alint-js/plugin-simplicity/-/plugin-simplicity-0.6.0.tgz",
+            "type": "registry",
+            "version": "0.6.0"
+        },
+        "slop": {
+            "alias": "slop",
+            "path": ".alint-rules/slop",
+            "specifier": "./.alint-rules/slop",
+            "type": "directory"
+        }
+    },
+    "version": 2
+}

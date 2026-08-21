@@ -1,9 +1,14 @@
-FROM node:22-alpine AS base
+FROM node:22.13-alpine AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
-RUN corepack enable
+# Node 22.13 ships an older Corepack keyring that cannot verify current pnpm
+# releases. Upgrade Corepack, then activate the packageManager version once in
+# the shared base stage so parallel install stages do not race on discovery.
+RUN npm install --global corepack@0.31.0 \
+    && corepack enable \
+    && corepack prepare pnpm@10.17.1 --activate
 
 COPY . /app
 WORKDIR /app
@@ -18,7 +23,7 @@ FROM base AS prod-deps
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
 
 # ── Stage 3: minimal production image ─────────────────────────
-FROM node:22-alpine
+FROM node:22.13-alpine
 
 WORKDIR /app
 

@@ -4,9 +4,14 @@
     "version": "0.0.1",
     "packageManager": "pnpm@10.17.1",
     "license": "MIT",
+    "engines": {
+        "node": ">=22.13.0"
+    },
     "scripts": {
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
+        "lint:ai": "alint src",
+        "lint:ai:dirty": "alint --dirty",
         "dev": "dotenv tsx watch ./src/main.ts",
         "dev:debug": "dotenv -- node --inspect=9229 --enable-source-maps --import tsx ./src/main.ts",
         "start": "tsx --env-file=.env ./src/main.ts",
@@ -30,11 +35,14 @@
         "tsx": "^4.21.0"
     },
     "devDependencies": {
+        "@alint-js/cli": "0.6.0",
         "@antfu/eslint-config": "^7.4.3",
+        "@rescript/language-server": "1.74.0",
         "@types/node": "^25.2.3",
         "esbuild": "^0.27.3",
         "eslint": "^9.39.2",
-        "typescript": "^5.9.3"
+        "typescript": "^5.9.3",
+        "typescript-language-server": "5.1.3"
     },
     "pnpm": {
         "onlyBuiltDependencies": [
