@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { Worker } from 'node:worker_threads'
 import { test } from 'node:test'
 
 import { createSqliteStore } from './sqliteStore.js'
@@ -46,6 +47,46 @@ test('sqlite: savePending removes every legacy live duplicate for one lookup key
             }
         }
     } finally {
+        await store.close()
+        await rm(dir, { recursive: true, force: true })
+    }
+})
+
+test('sqlite: a second writer waits for the first connection to release its lock', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'genshin-state-busy-'))
+    const path = join(dir, 'state.db')
+    const store = createSqliteStore(path)
+    // This integration test needs a real cross-thread SQLite lock; fake timers
+    // cannot advance the native busy handler or release another connection.
+    const holdMs = 150
+    const worker = new Worker(`
+        const { parentPort, workerData } = require('node:worker_threads')
+        const { DatabaseSync } = require('node:sqlite')
+        const db = new DatabaseSync(workerData.path)
+        db.exec('BEGIN IMMEDIATE')
+        parentPort.postMessage('locked')
+        setTimeout(() => {
+            db.exec('COMMIT')
+            db.close()
+            parentPort.postMessage('released')
+        }, workerData.holdMs)
+    `, { eval: true, workerData: { path, holdMs } })
+
+    try {
+        await new Promise<void>((resolve, reject) => {
+            worker.once('error', reject)
+            worker.once('message', message => message === 'locked' && resolve())
+        })
+
+        const startedAt = performance.now()
+        await store.cooldown.apply('locked-writer', 10_000)
+        const elapsedMs = performance.now() - startedAt
+
+        assert.ok(elapsedMs >= holdMs / 2, `writer returned too early after ${elapsedMs}ms`)
+        assert.ok(elapsedMs < 3_000, `writer waited unexpectedly long: ${elapsedMs}ms`)
+        assert.equal(await store.cooldown.check('locked-writer'), true)
+    } finally {
+        await worker.terminate()
         await store.close()
         await rm(dir, { recursive: true, force: true })
     }

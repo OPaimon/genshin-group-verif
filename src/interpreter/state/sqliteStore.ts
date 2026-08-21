@@ -53,6 +53,7 @@ export function createSqliteStore(path: string): StateStore {
         mkdirSync(dirname(path), { recursive: true })
     }
     const db = new DatabaseSync(path)
+    db.exec('PRAGMA busy_timeout = 5000')
     db.exec('PRAGMA journal_mode = WAL')
     db.exec(SCHEMA)
 
