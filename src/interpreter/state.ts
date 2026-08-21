@@ -62,7 +62,12 @@ export async function cooldown_apply(chatId: Peer_id<any>, userId: Peer_id<Peer_
 // ── Session ─────────────────────────────────────────────────
 
 export async function session_save(s: session): Promise<void> {
-    return store.session.save(s, SESSION_TTL_MS)
+    try {
+        await store.session.save(s, SESSION_TTL_MS)
+    } catch (err: unknown) {
+        logger.error('[Session.save] Failed:', err)
+        throw err
+    }
 }
 
 export async function session_findByToken(token: string): Promise<session | undefined> {

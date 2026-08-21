@@ -19,8 +19,9 @@ document does not replace that glossary.
   rejects/kicks the user.
 - Members added or approved by an admin skip verification.
 - Verification state survives restarts when a persistent state backend is
-  configured, and pending sessions are re-armed on boot so nobody stays
-  restricted forever.
+  configured, and pending sessions are re-armed on boot. Direct in-group joins
+  remain quarantined until successful verification or removal; failure never
+  grants messaging permission.
 
 ### Non-goals
 
@@ -66,29 +67,41 @@ without Telegram (`FlowTest.res` + `MockInterpreter.res`).
 
 ### Session flow
 
-1. A random quiz is chosen and an inline-keyboard challenge is sent. The
-   callback token is a UUID; the answer labels carry the token.
-2. The user answers via callback button. `Flow.handleCallback` resolves the
+1. For direct in-group joins, the bot first applies an indefinite per-user
+   restriction. Join requests remain outside the group and need no quarantine.
+2. Cooldown, pending-session, and quiz checks run only after in-group quarantine
+   is confirmed.
+3. The session is saved before its timeout observer and challenge are created.
+   Restriction or save failure stops the flow and applies the failure decision
+   (kick for an in-group member, decline for a join request).
+4. The user answers via callback button. `Flow.handleCallback` resolves the
    token to a session and evaluates the answer.
-3. Pass → the decision is enforced (approve join request / lift restriction).
-4. Fail or timeout → the decision is enforced the other way (decline/kick or
-   keep/apply restriction).
-5. All decisions go through a **claim** step so concurrent triggers (answer vs.
+5. Pass → the decision is enforced (approve join request / lift restriction).
+6. Fail or timeout → the decision is enforced the other way (decline/kick).
+7. All decisions go through a **claim** step so concurrent triggers (answer vs.
    timeout) resolve to a single winner.
 
 ### Safety properties
 
-- Timeout observers guarantee a pending session always terminates.
+- An unverified direct-join user must end removed or unable to send messages.
+  Only a successful `Grant_access` decision may lift the quarantine; it has no
+  automatic expiry.
+- Quarantine is the first verification-flow side effect for direct joins,
+  minimizing—but not eliminating—the Telegram admission-to-update race.
+- Restriction, persistence, and decision adapters log and rethrow failures so
+  the flow cannot treat a failed safety operation as success.
+- If saving fails after quarantine, the bot attempts to kick the entrant. If
+  that removal also fails, the indefinite restriction remains the safety state.
+- Timeout observers guarantee a saved pending session always terminates.
 - Logging/audit side effects must never break the verification chain:
   `interaction_logActivity` catches every Telegram call.
-- Basic groups cannot mute users (`restrictChatMember` throws); the error is
-  swallowed and the flow still terminates through its normal decision path.
-- `dp.onError` logs a handler error and marks it handled; the flow's timeout
-  observer resolves any half-finished session.
+- Basic groups cannot mute users (`restrictChatMember` throws); the failed
+  quarantine immediately falls back to kick and no challenge/session is created.
+- `dp.onError` logs and marks propagated handler errors as handled.
 
 ### Restart recovery
 
-With `sqlite`/`redis` backends, sessions persist across restarts but timeout
+With the `sqlite` backend, sessions persist across restarts but timeout
 observers are in-process only. On boot, `main.ts` lists all pending sessions
 and re-arms one observer per session. Double-arming is harmless because all
 terminal paths claim, and only one claimer wins.

@@ -73,6 +73,10 @@ module State = {
   // lookup: "chatId:userId" → sessionId  (mirrors the persistent store's lookup key)
   let lookupIndex: Map.t<string, string> = Map.make()
 
+  // Telegram-side safety state used by start-flow failure tests.
+  let restrictedUsers: Set.t<string> = Set.make()
+  let removedUsers: Set.t<string> = Set.make()
+
   // cooldown set: "chatId:userId"
   let cooldowns: Set.t<string> = Set.make()
 
@@ -84,6 +88,8 @@ module State = {
     tokenIndex->Map.clear
     lookupIndex->Map.clear
     cooldowns->Set.clear
+    restrictedUsers->Set.clear
+    removedUsers->Set.clear
   }
 }
 
@@ -118,12 +124,18 @@ let allocMsgId = (): Message.id => {
   Message.castId(id)
 }
 
-// 测试注入: true 时 presentChallenge 模拟发送失败 (返回 None)
+// 测试注入: true 时对应 adapter/state operation 抛错。
 let failPresentChallenge: ref<bool> = ref(false)
+exception RestrictUserFailure
+exception EnforceDecisionFailure
+exception SessionSaveFailure
 exception CooldownApplyFailure
-let failCooldownApply: ref<bool> = ref(false)
 exception WaitAndPeekFailure
 exception SessionClaimFailure
+let failRestrictUser: ref<bool> = ref(false)
+let failEnforceDecision: ref<bool> = ref(false)
+let failSessionSave: ref<bool> = ref(false)
+let failCooldownApply: ref<bool> = ref(false)
 let failWaitAndPeek: ref<bool> = ref(false)
 let returnSessionFromWaitAndPeek: ref<bool> = ref(false)
 let failSessionClaim: ref<bool> = ref(false)
@@ -139,6 +151,9 @@ let reset = () => {
   ]
   nextMsgId := 1000
   failPresentChallenge := false
+  failRestrictUser := false
+  failEnforceDecision := false
+  failSessionSave := false
   failCooldownApply := false
   failWaitAndPeek := false
   returnSessionFromWaitAndPeek := false
@@ -189,7 +204,16 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
   }
 
   let enforceDecision = (~chatId, ~userId, ~decision, ~context) => {
+    let key = State.lookupKey(~chatId, ~userId)
     record(`enforceDecision  chat=${fmtPeer(chatId)} user=${fmtPeer(userId)} decision=${fmtDecision(decision)} ctx=${fmtCtx(context)}`)
+    if failEnforceDecision.contents {
+      throw(EnforceDecisionFailure)
+    }
+    switch (decision, context) {
+    | (Grant_access, In_group) => State.restrictedUsers->Set.delete(key)->ignore
+    | (Punish_soft, In_group) => State.removedUsers->Set.add(key)->ignore
+    | (_, Join_request) => ()
+    }
   }
 
   let logActivity = (~kind, ~chatId, ~userId) => {
@@ -205,7 +229,12 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
   }
 
   let restrictUser = (~chatId, ~userId) => {
+    let key = State.lookupKey(~chatId, ~userId)
     record(`restrictUser  chat=${fmtPeer(chatId)} user=${fmtPeer(userId)}`)
+    if failRestrictUser.contents {
+      throw(RestrictUserFailure)
+    }
+    State.restrictedUsers->Set.add(key)->ignore
   }
 }
 
@@ -235,13 +264,16 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
 
   module Session = {
     let save = (session: session) => {
+      record(`Session.save  id=${session.id}`)
+      if failSessionSave.contents {
+        throw(SessionSaveFailure)
+      }
       State.sessions->Map.set(session.id, session)
       session.optionsWithTokens->Array.forEach(o => {
         State.tokenIndex->Map.set(o.token, session.id)
       })
       let lk = State.lookupKey(~chatId=session.chatId, ~userId=session.userId)
       State.lookupIndex->Map.set(lk, session.id)
-      record(`Session.save  id=${session.id}`)
     }
 
     let findByToken = (token: string) => {

@@ -165,9 +165,9 @@ logger.info(`✅ Logged in as @${me.username}`)
 
 // ── Restart recovery ───────────────────────────────────────
 // With a persistent backend, sessions survive a restart but their in-process
-// timeout observers don't — re-arm one per pending session so nobody stays
-// restricted forever. Double-arming is harmless: the observers' terminal
-// paths all go through claim, and only one claimer can win.
+// timeout observers don't — re-arm one per pending session so saved entrants
+// still reach a terminal decision. Double-arming is harmless: the observers'
+// terminal paths all go through claim, and only one claimer can win.
 
 const pendingSessions = await stateStore().session.listAll()
 for (const session of pendingSessions) {

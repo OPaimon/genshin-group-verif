@@ -55,6 +55,14 @@ let sessionGone = (id: string) =>
   ok(!(MockInterpreter.State.sessions->Map.has(id)), ~message=`session "${id}" gone`)
 let tokenGone = (tok: string) =>
   ok(!(MockInterpreter.State.tokenIndex->Map.has(tok)), ~message=`token "${tok}" gone`)
+let isRestricted = (key: string) => MockInterpreter.State.restrictedUsers->Set.has(key)
+let isRemoved = (key: string) => MockInterpreter.State.removedUsers->Set.has(key)
+let restricted = (key: string) => ok(isRestricted(key), ~message=`user "${key}" restricted`)
+let notRestricted = (key: string) => ok(!isRestricted(key), ~message=`user "${key}" not restricted`)
+let removed = (key: string) => ok(isRemoved(key), ~message=`user "${key}" removed`)
+let notRemoved = (key: string) => ok(!isRemoved(key), ~message=`user "${key}" not removed`)
+let cannotSendOrRemoved = (key: string) =>
+  ok(isRestricted(key) || isRemoved(key), ~message=`user "${key}" cannot send or is removed`)
 
 // ── Shared input builder ────────────────────────────────────
 
@@ -79,12 +87,12 @@ describe("startVerification", () => {
   test("happy path — in-group", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    // trace: 9 ops — 观察者(Session.waitAndPeek)必须先于 presentChallenge 挂上
+    // Quarantine is the first flow operation; observer still precedes challenge.
     traceLen(9)
-    traceNth(0, "Cooldown.check")
-    traceNth(1, "Session.findPending")
-    traceNth(2, "Quiz.getRandom")
-    traceNth(3, "restrictUser")
+    traceNth(0, "restrictUser")
+    traceNth(1, "Cooldown.check")
+    traceNth(2, "Session.findPending")
+    traceNth(3, "Quiz.getRandom")
     traceNth(4, "Session.save")
     traceNth(5, "Session.waitAndPeek")
     traceNth(6, "presentChallenge")
@@ -104,6 +112,8 @@ describe("startVerification", () => {
     let sess = MockInterpreter.State.sessions->Map.values->Iterator.toArray->Array.getUnsafe(0)
     ok(sess.verificationLocation->Option.isSome, ~message="has verificationLocation")
     equal(sess.context, In_group, ~message="context")
+    restricted("-100:42")
+    notRemoved("-100:42")
   })
 
   test("happy path — join request", () => {
@@ -136,17 +146,21 @@ describe("startVerification", () => {
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    traceLen(3)
-    traceNth(0, "Cooldown.check")
+    traceLen(4)
+    traceNth(0, "restrictUser")
+    traceNth(1, "Cooldown.check")
     traceHas("ON_COOLDOWN")
-    traceNth(1, "sendTempMessage")
+    traceNth(2, "sendTempMessage")
     traceHas("冷却时间")
-    traceNth(2, "enforceDecision")
+    traceNth(3, "enforceDecision")
     traceHas("decision=Punish_soft")
 
     sessionCount(0)
     tokenCount(0)
     lookupCount(0)
+    restricted("-100:42")
+    removed("-100:42")
+    cannotSendOrRemoved("-100:42")
   })
 
   test("existing pending session — claim then bail", () => {
@@ -164,8 +178,9 @@ describe("startVerification", () => {
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    traceNth(0, "Cooldown.check")
-    traceNth(1, "Session.findPending")
+    traceNth(0, "restrictUser")
+    traceNth(1, "Cooldown.check")
+    traceNth(2, "Session.findPending")
     traceHas("found")
     traceHas("Session.claim")
     traceHas("→ won")
@@ -181,26 +196,31 @@ describe("startVerification", () => {
     sessionCount(0)
     tokenCount(0)
     lookupCount(0)
+    restricted("-100:42")
+    removed("-100:42")
+    cannotSendOrRemoved("-100:42")
   })
 
-  test("no quizzes available — bail without restricting", () => {
+  test("no quizzes available — quarantine then remove", () => {
     MockInterpreter.QuizBank.clear()
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    traceLen(5)
-    traceNth(0, "Cooldown.check")
-    traceNth(1, "Session.findPending")
-    traceNth(2, "Quiz.getRandom")
+    traceLen(6)
+    traceNth(0, "restrictUser")
+    traceNth(1, "Cooldown.check")
+    traceNth(2, "Session.findPending")
+    traceNth(3, "Quiz.getRandom")
     traceHas("Quiz.getRandom → none")
-    traceNth(3, "sendTempMessage")
+    traceNth(4, "sendTempMessage")
     traceHas("验证服务当前不可用")
-    traceNth(4, "enforceDecision")
-    // 题库不可用时不应先禁言 — 避免「已禁言却无题可答」的遗留状态
-    traceNot("restrictUser")
+    traceNth(5, "enforceDecision")
 
     sessionCount(0)
     tokenCount(0)
+    restricted("-100:42")
+    removed("-100:42")
+    cannotSendOrRemoved("-100:42")
   })
 
   test("presentChallenge fails in-group — immediate verification failure", () => {
@@ -209,10 +229,10 @@ describe("startVerification", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
     traceLen(10)
-    traceNth(0, "Cooldown.check")
-    traceNth(1, "Session.findPending")
-    traceNth(2, "Quiz.getRandom")
-    traceNth(3, "restrictUser")
+    traceNth(0, "restrictUser")
+    traceNth(1, "Cooldown.check")
+    traceNth(2, "Session.findPending")
+    traceNth(3, "Quiz.getRandom")
     traceNth(4, "Session.save")
     traceNth(5, "Session.waitAndPeek")
     traceNth(6, "presentChallenge")
@@ -231,6 +251,92 @@ describe("startVerification", () => {
     tokenCount(0)
     lookupCount(0)
     noCooldowns()
+    restricted("-100:42")
+    removed("-100:42")
+    cannotSendOrRemoved("-100:42")
+  })
+
+  test("restrict failure — remove immediately without state or challenge", () => {
+    MockInterpreter.failRestrictUser := true
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+
+    traceLen(2)
+    traceNth(0, "restrictUser")
+    traceNth(1, "enforceDecision")
+    traceHas("decision=Punish_soft")
+    traceNot("Cooldown.check")
+    traceNot("Session.save")
+    traceNot("Session.waitAndPeek")
+    traceNot("presentChallenge")
+    sessionCount(0)
+    notRestricted("-100:42")
+    removed("-100:42")
+    cannotSendOrRemoved("-100:42")
+  })
+
+  test("in-group save failure — remove while quarantine is established", () => {
+    MockInterpreter.failSessionSave := true
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+
+    traceLen(6)
+    traceNth(0, "restrictUser")
+    traceNth(1, "Cooldown.check")
+    traceNth(2, "Session.findPending")
+    traceNth(3, "Quiz.getRandom")
+    traceNth(4, "Session.save")
+    traceNth(5, "enforceDecision")
+    traceHas("decision=Punish_soft")
+    traceNot("Session.waitAndPeek")
+    traceNot("presentChallenge")
+    sessionCount(0)
+    tokenCount(0)
+    lookupCount(0)
+    restricted("-100:42")
+    removed("-100:42")
+    cannotSendOrRemoved("-100:42")
+  })
+
+  test("in-group save and removal failure — user remains quarantined", () => {
+    MockInterpreter.failSessionSave := true
+    MockInterpreter.failEnforceDecision := true
+
+    let failed = try {
+      MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+      false
+    } catch {
+    | MockInterpreter.EnforceDecisionFailure => true
+    }
+
+    ok(failed, ~message="removal failure should propagate")
+    traceNth(0, "restrictUser")
+    traceHas("Session.save")
+    traceHas("enforceDecision")
+    traceNot("Session.waitAndPeek")
+    traceNot("presentChallenge")
+    sessionCount(0)
+    restricted("-100:42")
+    notRemoved("-100:42")
+  })
+
+  test("join-request save failure — decline without challenge", () => {
+    MockInterpreter.failSessionSave := true
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(Join_request))
+
+    traceLen(5)
+    traceNth(0, "Cooldown.check")
+    traceNth(1, "Session.findPending")
+    traceNth(2, "Quiz.getRandom")
+    traceNth(3, "Session.save")
+    traceNth(4, "enforceDecision")
+    traceHas("decision=Punish_soft")
+    traceHas("ctx=Join_request")
+    traceNot("restrictUser")
+    traceNot("Session.waitAndPeek")
+    traceNot("presentChallenge")
+    sessionCount(0)
   })
 
   test("presentChallenge fails join request — decline pending request immediately", () => {

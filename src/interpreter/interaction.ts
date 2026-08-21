@@ -117,6 +117,9 @@ export async function interaction_acknowledgeClick(queryId: CallbackQuery_id, te
  * Enforce a verification decision:
  *  - Grant_access: unrestrict (in_group) or approve join request
  *  - Punish_soft:  kick (in_group) or decline join request
+ *
+ * Safety-critical failures are logged and rethrown; callers must never treat a
+ * failed Telegram mutation as a completed decision.
  */
 export async function interaction_enforceDecision(chatId: Peer_id<any>, userId: Peer_id<Peer_user>, dec: decision, ctx: context): Promise<void> {
     const chat = chatId as number
@@ -158,8 +161,9 @@ export async function interaction_enforceDecision(chatId: Peer_id<any>, userId: 
                 })
             }
         }
-    } catch (err: any) {
+    } catch (err: unknown) {
         logger.error(`[enforceDecision] Failed (decision=${JSON.stringify(dec)}, ctx=${ctx}):`, err)
+        throw err
     }
 }
 
@@ -228,11 +232,11 @@ export function interaction_logObserverError(error: unknown): Promise<void> {
     }
     return Promise.resolve()
 }
-
 /**
- * Mute a user in a supergroup while their verification is pending.
- * Note: mtcute's restrictChatMember only supports supergroups/channels;
- * for basic groups this throws and is swallowed (no mute happens).
+ * Quarantine a user in a supergroup until verification succeeds or removal
+ * succeeds. This deliberately has no automatic expiry: time must never grant
+ * messaging permission to an unverified member. Basic groups reject here and
+ * the flow immediately falls back to kick.
  */
 export async function interaction_restrictUser(chatId: Peer_id<any>, userId: Peer_id<Peer_user>): Promise<void> {
     try {
@@ -260,7 +264,8 @@ export async function interaction_restrictUser(chatId: Peer_id<any>, userId: Pee
                 sendPlain: true,
             },
         })
-    } catch (err: any) {
+    } catch (err: unknown) {
         logger.error('[restrictUser] Failed:', err)
+        throw err
     }
 }

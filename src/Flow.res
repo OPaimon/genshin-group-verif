@@ -131,81 +131,94 @@ module Make = (
   let startVerification = (input: start_input) => {
     let {userId, chatId, userChatId, userFirstName, context} = input
 
+    let punish = () =>
+      I.enforceDecision(~chatId, ~userId, ~decision=Punish_soft, ~context)
+
     let bail = msg =>
-      I.sendTempMessage(~chatId=userChatId, ~text=msg)->bind(() =>
-        I.enforceDecision(~chatId, ~userId, ~decision=Punish_soft, ~context)
+      I.sendTempMessage(~chatId=userChatId, ~text=msg)->bind(() => punish())
+
+    let continueAfterQuarantine = () =>
+      S.Cooldown.check(~chatId, ~userId)->bind(onCooldown =>
+        if onCooldown {
+          bail(`您处于冷却时间内，请稍后再试。`)
+        } else {
+          S.Session.findPending(~chatId, ~userId)->bind(pending =>
+            switch pending {
+            // ── 存在旧会话: 清理 → 通知 → 踢出 ──
+            | Some(old) =>
+              cleanupWithMessage(old)->bind(
+                () =>
+                  bail(`您有一个正在进行的验证。我们已将其清理。\n请您重新加入以开始新的验证。`),
+              )
+
+            // ── 正常流程 ──
+            | None =>
+              Q.getRandom()->bind(
+                maybeQuiz =>
+                  switch maybeQuiz {
+                  | None =>
+                    bail(`验证服务当前不可用，我们无法处理您的请求。`)
+
+                  | Some(raw) =>
+                    let quiz = prepareQuiz(raw)
+                    let session: session = {
+                      id: randomUUID(),
+                      chatId,
+                      userId,
+                      correctToken: quiz.correctToken,
+                      context,
+                      optionsWithTokens: quiz.optionsWithTokens,
+                      verificationLocation: None,
+                    }
+                    let options = quiz.optionsWithTokens->Array.map(o => (o.optionText, o.token))
+                    let dest = targetChat(session)
+
+                    recoverError(
+                      () => S.Session.save(session)->bind(() => Some(session)->return),
+                      _error => punish()->bind(() => None->return),
+                    )
+                    ->bind(saved =>
+                      switch saved {
+                      | None => return()
+                      | Some(session) => {
+                          // 兜底观察者仍先挂上; presentChallenge 返回 option, 发送失败
+                          // 不再打断整条链, 而是进入下方 None 分支立即裁决
+                          armTimeoutObserver(session)
+                          I.presentChallenge(
+                            ~chatId=dest,
+                            ~userId,
+                            ~userFirstName,
+                            ~question=quiz.question,
+                            ~options,
+                            ~timeoutSec=sessionCleanupDelaySec,
+                          )
+                        }
+                        ->bind(sent =>
+                          switch sent {
+                          | Some(loc) =>
+                            S.Session.updateLocation(session, loc)
+                            ->bind(() => I.logActivity(~kind=Request_start, ~chatId, ~userId))
+                          | None => rejectChallengeSendFailure(session)
+                          }
+                        )
+                      }
+                    )
+                  },
+              )
+            }
+          )
+        }
       )
 
-    S.Cooldown.check(~chatId, ~userId)->bind(onCooldown =>
-      if onCooldown {
-        bail(`您处于冷却时间内，请稍后再试。`)
-      } else {
-        S.Session.findPending(~chatId, ~userId)->bind(pending =>
-          switch pending {
-          // ── 存在旧会话: 清理 → 通知 → 踢出 ──
-          | Some(old) =>
-            cleanupWithMessage(old)->bind(
-              () =>
-                bail(`您有一个正在进行的验证。我们已将其清理。\n请您重新加入以开始新的验证。`),
-            )
-
-          // ── 正常流程 ──
-          | None =>
-            // 先确认题库可用再做任何对用户可见的动作 —
-            // 服务不可用时不应留下「已被禁言却无题可答」的用户
-            Q.getRandom()->bind(
-              maybeQuiz =>
-                switch maybeQuiz {
-                | None =>
-                  bail(`验证服务当前不可用，我们无法处理您的请求。`)
-
-                | Some(raw) =>
-                  let quiz = prepareQuiz(raw)
-                  let session: session = {
-                    id: randomUUID(),
-                    chatId,
-                    userId,
-                    correctToken: quiz.correctToken,
-                    context,
-                    optionsWithTokens: quiz.optionsWithTokens,
-                    verificationLocation: None,
-                  }
-                  let options = quiz.optionsWithTokens->Array.map(o => (o.optionText, o.token))
-                  let dest = targetChat(session)
-
-                  // in-group 先禁言
-                  switch context {
-                  | In_group => I.restrictUser(~chatId, ~userId)
-                  | Join_request => return()
-                  }
-                  ->bind(() => S.Session.save(session))
-                  ->bind(() => {
-                    // 兜底观察者仍先挂上; presentChallenge 返回 option, 发送失败
-                    // 不再打断整条链, 而是进入下方 None 分支立即裁决
-                    armTimeoutObserver(session)
-                    I.presentChallenge(
-                      ~chatId=dest,
-                      ~userId,
-                      ~userFirstName,
-                      ~question=quiz.question,
-                      ~options,
-                      ~timeoutSec=sessionCleanupDelaySec,
-                    )
-                  })
-                  ->bind(sent =>
-                    switch sent {
-                    | Some(loc) =>
-                      S.Session.updateLocation(session, loc)
-                      ->bind(() => I.logActivity(~kind=Request_start, ~chatId, ~userId))
-                    | None => rejectChallengeSendFailure(session)
-                    }
-                  )
-                },
-            )
-          }
-        )
-      }
-    )
+    switch context {
+    | Join_request => continueAfterQuarantine()
+    | In_group =>
+      recoverError(
+        () => I.restrictUser(~chatId, ~userId)->bind(() => true->return),
+        _error => punish()->bind(() => false->return),
+      )
+      ->bind(quarantined => quarantined ? continueAfterQuarantine() : return())
+    }
   }
 
   // ── Handle Callback (quiz answer) ─────────
