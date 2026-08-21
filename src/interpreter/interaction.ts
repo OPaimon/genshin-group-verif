@@ -57,9 +57,6 @@ export async function interaction_presentChallenge(chatId: Peer_id<any>, userId:
     }
 }
 
-/**
- * Edit the verification message to show a status text and remove inline keyboard.
- */
 export async function interaction_updateStatus(loc: Message_location<any>, status: string): Promise<void> {
     const [chatId, msgId] = loc
     try {
@@ -102,10 +99,6 @@ export async function interaction_updateStatus(loc: Message_location<any>, statu
     }
 }
 
-/**
- * Answer a callback query — shows a toast or alert to the user who clicked.
- * The queryId is passed through from mtcute's Long type, cast via BigInt in Domain.
- */
 export async function interaction_acknowledgeClick(queryId: CallbackQuery_id, text: string, showAlert: boolean): Promise<void> {
     try {
         // queryId flows from main.ts where it's cast from mtcute's Long (tl.Long).
@@ -202,9 +195,6 @@ export async function interaction_logActivity(kind: log_kind, chatId: Peer_id<an
 // How long transient notices (cooldown / stale-session / no-quiz) stay visible.
 const TEMP_MESSAGE_TTL_MS = 10_000
 
-/**
- * Send a temporary message that auto-deletes after TEMP_MESSAGE_TTL_MS.
- */
 export async function interaction_sendTempMessage(chatId: Peer_id<any>, text: string): Promise<void> {
     try {
         const sent = await tg().sendText(chatId as number, text)
@@ -218,9 +208,6 @@ export async function interaction_sendTempMessage(chatId: Peer_id<any>, text: st
     }
 }
 
-/**
- * Schedule a message for deletion after a delay.
- */
 export async function interaction_scheduleMessageCleanup(loc: Message_location<any>, delaySec: number): Promise<void> {
     const [chatId, msgId] = loc
     setTimeout(async () => {

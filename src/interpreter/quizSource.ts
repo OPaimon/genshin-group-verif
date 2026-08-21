@@ -37,10 +37,7 @@ async function loadQuizzesFromFile(): Promise<quiz[]> {
     return parseQuizzes(raw)
 }
 
-/**
- * Initialize the quiz bank. Must be called once at startup, before the bot
- * starts processing updates.
- */
+/** Must be called once at startup, before the bot starts processing updates. */
 export async function initQuizBank(): Promise<void> {
     try {
         quizBank = await loadQuizzesFromFile()

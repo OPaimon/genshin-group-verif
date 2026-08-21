@@ -35,7 +35,6 @@ export function challengeMessage(opts: {
     return html`<b>入群验证</b><br>旅行者 <a href="tg://user?id=${opts.userId}">${opts.userFirstName}</a> 你好！<br>欢迎加入本群！请完成以下问题验证：<br>问题: ${opts.question}<br>请在 ${formatDuration(opts.timeoutSec)}内点击正确答案完成验证。${ad}`
 }
 
-/** The activity entry sent to the LOG_PEER channel. */
 export function activityLogMessage(opts: {
     tag: string
     chatTitle: string

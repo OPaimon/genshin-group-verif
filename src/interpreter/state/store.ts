@@ -18,7 +18,6 @@ import type { Message_location, Peer_unknown, session } from '../../Domain.gen.j
 import { peerKey } from '../peer.js'
 
 export interface CooldownStore {
-    /** True if `key` is currently cooling down. */
     check: (key: string) => Promise<boolean>
     apply: (key: string, ttlMs: number) => Promise<void>
 }
