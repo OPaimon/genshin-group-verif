@@ -22,6 +22,7 @@ const TTL = 10_000 // long enough to never expire mid-test
 const SHORT_TTL = 100 // for expiry tests
 const EXPIRY_WAIT = 300 // comfortably past SHORT_TTL even on slow CI
 
+const REFRESHED_TTL = 1_000
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 export function makeSession(overrides: Partial<session> = {}): session {
@@ -127,18 +128,20 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         assertSameSession(winners[0], s)
     })
 
-    contractTest('updateLocation sets verificationLocation on a live session', async (store) => {
+    contractTest('updateLocation refreshes every live reachability path', async (store) => {
         const s = makeSession()
-        await store.session.savePending(s, TTL)
+        await store.session.savePending(s, SHORT_TTL)
 
         const loc = Message_at(s.chatId, 777)
-        assert.equal(await store.session.updateLocation(s.id, loc, TTL), true)
+        assert.equal(await store.session.updateLocation(s.id, loc, REFRESHED_TTL), true)
+        await sleep(EXPIRY_WAIT)
 
-        assertSameSession(await store.session.getById(s.id), { ...s, verificationLocation: loc })
-        assertSameSession(
-            await store.session.findByToken(s.correctToken),
-            { ...s, verificationLocation: loc },
-        )
+        const updated = { ...s, verificationLocation: loc }
+        assertSameSession(await store.session.getById(s.id), updated)
+        for (const option of s.optionsWithTokens) {
+            assertSameSession(await store.session.findByToken(option.token), updated)
+        }
+        assertSameSession(await store.session.findPending(sessionLookupKey(s)), updated)
     })
 
     contractTest('updateLocation after claim does NOT resurrect the session', async (store) => {
@@ -176,6 +179,19 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         assertSameSession(await store.session.claim(s1.id), s1)
         assertSameSession(await store.session.findPending(sessionLookupKey(s1)), s2)
         assertSameSession(await store.session.claim(s2.id), s2)
+    })
+
+    contractTest('refreshing an evicted session does not replace the newer pending session', async (store) => {
+        const older = makeSession()
+        const newer = makeSession({ chatId: older.chatId, userId: older.userId })
+        await store.session.savePending(older, TTL)
+        await store.session.savePending(newer, TTL)
+
+        assert.equal(
+            await store.session.updateLocation(older.id, Message_at(older.chatId, 999), TTL),
+            false,
+        )
+        assertSameSession(await store.session.findPending(sessionLookupKey(older)), newer)
     })
 
     contractTest('listAll returns live sessions and omits claimed ones', async (store) => {

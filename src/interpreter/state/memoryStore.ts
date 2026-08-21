@@ -85,10 +85,16 @@ export function createMemoryStore(): StateStore {
             },
             async updateLocation(id, loc: Message_location<Peer_unknown>, ttlMs) {
                 const existing = sessionById.get(id)
-                // Update-if-present only: the session may have been claimed
-                // between save and the quiz message send completing.
+                // Update-if-present only: the session may have been claimed or
+                // replaced between save and the quiz message send completing.
                 if (existing === undefined) return false
-                sessionById.set(id, { ...existing, verificationLocation: loc }, ttlMs)
+                const updated = { ...existing, verificationLocation: loc }
+                sessionById.set(id, updated, ttlMs)
+                for (const opt of existing.optionsWithTokens) {
+                    if (tokenIndex.get(opt.token) === id) tokenIndex.set(opt.token, id, ttlMs)
+                }
+                const lookupKey = sessionLookupKey(existing)
+                if (lookupIndex.get(lookupKey) === id) lookupIndex.set(lookupKey, id, ttlMs)
                 return true
             },
             async listAll() {

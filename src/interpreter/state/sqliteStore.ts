@@ -93,6 +93,9 @@ export function createSqliteStore(path: string): StateStore {
     const updateSession = db.prepare(
         'UPDATE sessions SET data = ?, expires_at = ? WHERE id = ?',
     )
+    const updateTokens = db.prepare(
+        'UPDATE session_tokens SET expires_at = ? WHERE session_id = ?',
+    )
     const insertCooldown = db.prepare(
         'INSERT OR REPLACE INTO cooldowns (key, expires_at) VALUES (?, ?)',
     )
@@ -193,7 +196,9 @@ export function createSqliteStore(path: string): StateStore {
                     const data = rowData(selectById.get(id, Date.now()))
                     if (data === undefined) return false
                     const updated: session = { ...decodeSession(data), verificationLocation: loc }
-                    updateSession.run(encodeSession(updated), Date.now() + ttlMs, id)
+                    const expiresAt = Date.now() + ttlMs
+                    updateSession.run(encodeSession(updated), expiresAt, id)
+                    updateTokens.run(expiresAt, id)
                     return true
                 })
             },
