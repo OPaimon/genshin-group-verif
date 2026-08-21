@@ -3,6 +3,7 @@ open Utils
 
 let messageDeletionDelaySec = 10
 let sessionCleanupDelaySec = 60
+let sessionCleanupDelayMs = Int.toFloat(sessionCleanupDelaySec * 1000)
 let cooldownDurationSec = 60
 
 module Make = (
@@ -49,7 +50,13 @@ module Make = (
       }
     )
 
-  // 通用: 「验证失败」→ 编辑消息 → 踢出/拒绝 → 日志
+  let auditKind = (enforcement, terminalKind) =>
+    switch enforcement {
+    | Ok() => terminalKind
+    | Error(_) => Enforcement_failed
+    }
+
+  // 通用: 「验证失败」→ 编辑消息 → 踢出/拒绝 → 诚实记录裁决结果
   let rejectAndLog = (~session: session, ~loc, ~text, ~logKind) =>
     I.updateStatus(~loc, ~status=text)
     ->bind(() =>
@@ -60,7 +67,13 @@ module Make = (
         ~context=session.context,
       )
     )
-    ->bind(() => I.logActivity(~kind=logKind, ~chatId=session.chatId, ~userId=session.userId))
+    ->bind(enforcement =>
+      I.logActivity(
+        ~kind=auditKind(enforcement, logKind),
+        ~chatId=session.chatId,
+        ~userId=session.userId,
+      )
+    )
 
   // 验证题发送失败: 没有验证消息可编辑/清理, 直接裁决为验证失败。
   // 先 claim 再裁决, 输给超时观察者 (claim → None) 时放弃, 避免重复处理。
@@ -75,8 +88,12 @@ module Make = (
           ~decision=Punish_soft,
           ~context=session.context,
         )
-        ->bind(() =>
-          I.logActivity(~kind=Fail_error, ~chatId=session.chatId, ~userId=session.userId)
+        ->bind(enforcement =>
+          I.logActivity(
+            ~kind=auditKind(enforcement, Fail_error),
+            ~chatId=session.chatId,
+            ~userId=session.userId,
+          )
         )
       }
     )
@@ -95,7 +112,7 @@ module Make = (
           ~decision=Punish_soft,
           ~context=session.context,
         )
-        ->bind(() =>
+        ->bind(enforcement =>
           switch session.verificationLocation {
           | Some(loc) =>
             I.updateStatus(~loc, ~status=`验证已超时，操作已被取消。`)->bind(() =>
@@ -103,9 +120,13 @@ module Make = (
             )
           | None => return()
           }
-        )
-        ->bind(() =>
-          I.logActivity(~kind=Fail_timeout, ~chatId=session.chatId, ~userId=session.userId)
+          ->bind(() =>
+            I.logActivity(
+              ~kind=auditKind(enforcement, Fail_timeout),
+              ~chatId=session.chatId,
+              ~userId=session.userId,
+            )
+          )
         )
       }
     )
@@ -115,13 +136,19 @@ module Make = (
   let armTimeoutObserver = (session: session) =>
     recoverError(
       () =>
-        S.Session.waitAndPeek(~sessionId=session.id, ~delaySec=sessionCleanupDelaySec)
-        ->bind(maybeSession =>
-          switch maybeSession {
-          | Some(session) => handleTimeout(session)
-          | None => return()
+        I.nowMs()->bind(nowMs => {
+          let delayMs = switch session.deadlineAt {
+          | Some(deadlineAt) => Math.max(0.0, deadlineAt -. nowMs)
+          | None => 0.0
           }
-        ),
+          S.Session.waitAndPeek(~sessionId=session.id, ~delayMs)
+          ->bind(maybeSession =>
+            switch maybeSession {
+            | Some(session) => handleTimeout(session)
+            | None => return()
+            }
+          )
+        }),
       error => I.logObserverError(error),
     )
     ->discard
@@ -135,7 +162,7 @@ module Make = (
       I.enforceDecision(~chatId, ~userId, ~decision=Punish_soft, ~context)
 
     let bail = msg =>
-      I.sendTempMessage(~chatId=userChatId, ~text=msg)->bind(() => punish())
+      I.sendTempMessage(~chatId=userChatId, ~text=msg)->bind(() => punish()->bind(_ => return()))
 
     let continueAfterQuarantine = () =>
       S.Cooldown.check(~chatId, ~userId)->bind(onCooldown =>
@@ -161,21 +188,23 @@ module Make = (
 
                   | Some(raw) =>
                     let quiz = prepareQuiz(raw)
-                    let session: session = {
-                      id: randomUUID(),
-                      chatId,
-                      userId,
-                      correctToken: quiz.correctToken,
-                      context,
-                      optionsWithTokens: quiz.optionsWithTokens,
-                      verificationLocation: None,
-                    }
+                    I.nowMs()->bind(nowMs => {
+                      let session: session = {
+                        id: randomUUID(),
+                        chatId,
+                        userId,
+                        correctToken: quiz.correctToken,
+                        context,
+                        optionsWithTokens: quiz.optionsWithTokens,
+                        verificationLocation: None,
+                        deadlineAt: Some(nowMs +. sessionCleanupDelayMs),
+                      }
                     let options = quiz.optionsWithTokens->Array.map(o => (o.optionText, o.token))
                     let dest = targetChat(session)
 
                     recoverError(
                       () => S.Session.save(session)->bind(() => Some(session)->return),
-                      _error => punish()->bind(() => None->return),
+                      _error => punish()->bind(_ => None->return),
                     )
                     ->bind(saved =>
                       switch saved {
@@ -197,12 +226,13 @@ module Make = (
                           switch sent {
                           | Some(loc) =>
                             S.Session.updateLocation(session, loc)
-                            ->bind(() => I.logActivity(~kind=Request_start, ~chatId, ~userId))
+                            ->bind(live => live ? I.logActivity(~kind=Request_start, ~chatId, ~userId) : return())
                           | None => rejectChallengeSendFailure(session)
                           }
                         )
                       }
                     )
+                    })
                   },
               )
             }
@@ -215,7 +245,7 @@ module Make = (
     | In_group =>
       recoverError(
         () => I.restrictUser(~chatId, ~userId)->bind(() => true->return),
-        _error => punish()->bind(() => false->return),
+        _error => punish()->bind(_ => false->return),
       )
       ->bind(quarantined => quarantined ? continueAfterQuarantine() : return())
     }
@@ -255,11 +285,15 @@ module Make = (
                 ~context=session.context,
               )
             )
-            ->bind(() =>
+            ->bind(enforcement =>
               I.scheduleMessageCleanup(~loc=messageLocation, ~delaySec=messageDeletionDelaySec)
-            )
-            ->bind(() =>
-              I.logActivity(~kind=Success, ~chatId=session.chatId, ~userId=session.userId)
+              ->bind(() =>
+                I.logActivity(
+                  ~kind=auditKind(enforcement, Success),
+                  ~chatId=session.chatId,
+                  ~userId=session.userId,
+                )
+              )
             )
 
           | Some(session) =>

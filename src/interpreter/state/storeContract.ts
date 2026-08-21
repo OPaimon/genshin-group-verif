@@ -16,7 +16,7 @@ import { test } from 'node:test'
 
 import { Message_at } from '../../Domain.gen.js'
 import { toUnknownPeerId, toUserPeerId } from '../peer.js'
-import { sessionLookupKey } from './store.js'
+import { decodeSession, encodeSession, sessionLookupKey } from './store.js'
 
 const TTL = 10_000 // long enough to never expire mid-test
 const SHORT_TTL = 100 // for expiry tests
@@ -38,6 +38,7 @@ export function makeSession(overrides: Partial<session> = {}): session {
             { optionText: 'C', token: `tok-c-${id}` },
         ],
         verificationLocation: undefined,
+        deadlineAt: Date.now() + 60_000,
         ...overrides,
     }
 }
@@ -87,6 +88,19 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         assert.equal(await store.session.getById('no-such-id'), undefined)
     })
 
+    contractTest('deadlineAt round-trips through session persistence', async (store) => {
+        const s = makeSession({ deadlineAt: 1_750_000_060_000 })
+        await store.session.save(s, TTL)
+        assert.equal((await store.session.getById(s.id))?.deadlineAt, s.deadlineAt)
+    })
+
+    contractTest('legacy JSON without deadlineAt decodes as an expired-compatible session', async (store) => {
+        const legacy = makeSession({ deadlineAt: undefined })
+        const decoded = decodeSession(encodeSession(legacy))
+        assert.equal(decoded.deadlineAt, undefined)
+        await store.session.save(decoded, TTL)
+        assert.equal((await store.session.getById(decoded.id))?.deadlineAt, undefined)
+    })
     contractTest('claim returns the session once and removes all its entries', async (store) => {
         const s = makeSession()
         await store.session.save(s, TTL)
@@ -118,7 +132,7 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         await store.session.save(s, TTL)
 
         const loc = Message_at(s.chatId, 777)
-        await store.session.updateLocation(s.id, loc, TTL)
+        assert.equal(await store.session.updateLocation(s.id, loc, TTL), true)
 
         assertSameSession(await store.session.getById(s.id), { ...s, verificationLocation: loc })
         assertSameSession(
@@ -133,7 +147,7 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         await store.session.claim(s.id)
 
         const loc = Message_at(s.chatId, 777)
-        await store.session.updateLocation(s.id, loc, TTL)
+        assert.equal(await store.session.updateLocation(s.id, loc, TTL), false)
 
         assert.equal(await store.session.getById(s.id), undefined)
         assert.deepStrictEqual(await store.session.listAll(), [])

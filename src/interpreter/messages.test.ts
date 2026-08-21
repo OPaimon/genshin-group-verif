@@ -15,6 +15,7 @@ test('formatLogKind — maps every log_kind to its tag', () => {
     assert.equal(formatLogKind('Success'), 'SUCCESS')
     assert.equal(formatLogKind('Fail_timeout'), 'FAIL_TIMEOUT')
     assert.equal(formatLogKind('Fail_error'), 'FAIL_ERROR')
+    assert.equal(formatLogKind('Enforcement_failed'), 'ENFORCEMENT_FAILED')
 })
 
 test('challengeMessage — includes name, question, and rendered timeout', () => {

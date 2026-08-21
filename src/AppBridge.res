@@ -9,6 +9,9 @@ external bindImpl: (promise<'a>, 'a => promise<'b>) => promise<'b> = "bind"
 @module("./interpreter/task.js")
 external recoverErrorImpl: (() => promise<'a>, exn => promise<'a>) => promise<'a> = "recoverError"
 
+@module("./interpreter/task.js")
+external nowMsImpl: unit => promise<float> = "nowMs"
+
 @module("./interpreter/interaction.js")
 external presentChallengeImpl: (
   Peer.id<'a>,
@@ -26,7 +29,7 @@ external updateStatusImpl: (Message.location<'a>, string) => promise<unit> = "in
 external acknowledgeClickImpl: (CallbackQuery.id, string, bool) => promise<unit> = "interaction_acknowledgeClick"
 
 @module("./interpreter/interaction.js")
-external enforceDecisionImpl: (Peer.id<'a>, Peer.id<Peer.user>, decision, context) => promise<unit> = "interaction_enforceDecision"
+external enforceDecisionImpl: (Peer.id<'a>, Peer.id<Peer.user>, decision, context) => promise<result<unit, string>> = "interaction_enforceDecision"
 
 @module("./interpreter/interaction.js")
 external logActivityImpl: (log_kind, Peer.id<'a>, Peer.id<Peer.user>) => promise<unit> = "interaction_logActivity"
@@ -44,7 +47,7 @@ external restrictUserImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<unit> = 
 external logObserverErrorImpl: exn => promise<unit> = "interaction_logObserverError"
 
 @module("./interpreter/state.js")
-external sessionWaitAndPeekImpl: (string, int) => promise<option<session>> = "session_waitAndPeek"
+external sessionWaitAndPeekImpl: (string, float) => promise<option<session>> = "session_waitAndPeek"
 
 @module("./interpreter/state.js")
 external cooldownCheckImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<bool> = "cooldown_check"
@@ -65,7 +68,7 @@ external sessionFindPendingImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<op
 external sessionClaimImpl: string => promise<option<session>> = "session_claim"
 
 @module("./interpreter/state.js")
-external sessionUpdateLocationImpl: (session, Message.location<Peer.unknown>) => promise<unit> = "session_updateLocation"
+external sessionUpdateLocationImpl: (session, Message.location<Peer.unknown>) => promise<bool> = "session_updateLocation"
 
 @module("./interpreter/quizSource.js")
 external quizGetRandomImpl: unit => promise<option<quiz>> = "quiz_getRandom"
@@ -79,6 +82,7 @@ module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
   let pure = pureImpl
   let bind = bindImpl
   let recoverError = recoverErrorImpl
+  let nowMs = nowMsImpl
   let logObserverError = logObserverErrorImpl
 
   let presentChallenge = (~chatId, ~userId, ~userFirstName, ~question, ~options, ~timeoutSec) =>
@@ -124,8 +128,8 @@ module State: StateSig.S with type t<'a> = promise<'a> = {
       sessionFindPendingImpl(chatId, userId)
     let claim = sessionClaimImpl
     let updateLocation = sessionUpdateLocationImpl
-    let waitAndPeek = (~sessionId, ~delaySec) =>
-      sessionWaitAndPeekImpl(sessionId, delaySec)
+    let waitAndPeek = (~sessionId, ~delayMs) =>
+      sessionWaitAndPeekImpl(sessionId, delayMs)
   }
 }
 

@@ -70,8 +70,9 @@ export function createMemoryStore(): StateStore {
                 const existing = sessionById.get(id)
                 // Update-if-present only: the session may have been claimed
                 // between save and the quiz message send completing.
-                if (existing === undefined) return
+                if (existing === undefined) return false
                 sessionById.set(id, { ...existing, verificationLocation: loc }, ttlMs)
+                return true
             },
             async listAll() {
                 return sessionById.values()

@@ -118,10 +118,10 @@ export async function interaction_acknowledgeClick(queryId: CallbackQuery_id, te
  *  - Grant_access: unrestrict (in_group) or approve join request
  *  - Punish_soft:  kick (in_group) or decline join request
  *
- * Safety-critical failures are logged and rethrown; callers must never treat a
- * failed Telegram mutation as a completed decision.
+ * Safety-critical failures are logged and returned as Error; this boundary
+ * never rejects so Flow can select an honest audit tag.
  */
-export async function interaction_enforceDecision(chatId: Peer_id<any>, userId: Peer_id<Peer_user>, dec: decision, ctx: context): Promise<void> {
+export async function interaction_enforceDecision(chatId: Peer_id<any>, userId: Peer_id<Peer_user>, dec: decision, ctx: context): Promise<{ TAG: 'Ok', _0: void } | { TAG: 'Error', _0: string }> {
     const chat = chatId as number
     const user = userId as number
 
@@ -161,9 +161,10 @@ export async function interaction_enforceDecision(chatId: Peer_id<any>, userId: 
                 })
             }
         }
+        return { TAG: 'Ok', _0: undefined }
     } catch (err: unknown) {
         logger.error(`[enforceDecision] Failed (decision=${JSON.stringify(dec)}, ctx=${ctx}):`, err)
-        throw err
+        return { TAG: 'Error', _0: err instanceof Error ? err.message : String(err) }
     }
 }
 

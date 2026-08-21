@@ -18,11 +18,11 @@ module type S = {
     /// None 表示已被并发路径处理, 调用方必须放弃。
     let claim: string => t<option<Domain.session>>
 
-    /// 更新 session 的 verificationLocation 字段
-    let updateLocation: (Domain.session, Domain.Message.location<Domain.Peer.unknown>) => t<unit>
+    /// 更新仍存活 session 的 verificationLocation；false 表示已被 claim/过期。
+    let updateLocation: (Domain.session, Domain.Message.location<Domain.Peer.unknown>) => t<bool>
 
-    /// 超时观察: 等待 delaySec 后窥视会话是否仍在。None = 已被应答路径处理,
+    /// 超时观察: 等待 delayMs 后窥视会话是否仍在。None = 已被应答路径处理,
     /// 超时链应放弃。最终裁决仍由 claim 完成 — 这里只是避免多余的超时链。
-    let waitAndPeek: (~sessionId: string, ~delaySec: int) => t<option<Domain.session>>
+    let waitAndPeek: (~sessionId: string, ~delayMs: float) => t<option<Domain.session>>
   }
 }

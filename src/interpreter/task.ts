@@ -5,6 +5,8 @@
 
 export const pure = <T>(value: T): Promise<T> => Promise.resolve(value)
 
+export const nowMs = (): Promise<number> => Promise.resolve(Date.now())
+
 export function bind<T, U>(task: Promise<T>, fn: (value: T) => Promise<U>): Promise<U> {
     return task.then(fn)
 }

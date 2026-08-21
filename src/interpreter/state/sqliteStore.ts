@@ -154,11 +154,12 @@ export function createSqliteStore(path: string): StateStore {
                 })
             },
             async updateLocation(id, loc: Message_location<Peer_unknown>, ttlMs) {
-                tx(() => {
+                return tx(() => {
                     const data = rowData(selectById.get(id, Date.now()))
-                    if (data === undefined) return
+                    if (data === undefined) return false
                     const updated: session = { ...decodeSession(data), verificationLocation: loc }
                     updateSession.run(encodeSession(updated), Date.now() + ttlMs, id)
+                    return true
                 })
             },
             async listAll() {

@@ -24,7 +24,7 @@ test('restrictUser applies an indefinite quarantine and propagates Telegram fail
     assert.equal((params?.restrictions as Record<string, unknown>).sendMessages, true)
 })
 
-test('enforceDecision propagates removal failure instead of reporting false success', async () => {
+test('enforceDecision returns Error and never rejects on Telegram failure', async () => {
     const failure = new Error('ban failed')
 
     setRuntime({
@@ -33,8 +33,19 @@ test('enforceDecision propagates removal failure instead of reporting false succ
         },
     } as unknown as TelegramClient)
 
-    await assert.rejects(
-        interaction_enforceDecision(-100 as never, 42 as never, 'Punish_soft', 'In_group'),
-        error => error === failure,
+    assert.deepStrictEqual(
+        await interaction_enforceDecision(-100 as never, 42 as never, 'Punish_soft', 'In_group'),
+        { TAG: 'Error', _0: failure.message },
+    )
+})
+
+test('enforceDecision returns Ok after a successful Telegram mutation', async () => {
+    setRuntime({
+        async banChatMember() {},
+    } as unknown as TelegramClient)
+
+    assert.deepStrictEqual(
+        await interaction_enforceDecision(-100 as never, 42 as never, 'Punish_soft', 'In_group'),
+        { TAG: 'Ok', _0: undefined },
     )
 })

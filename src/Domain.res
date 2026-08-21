@@ -14,6 +14,7 @@ type log_kind =
   | Success
   | Fail_timeout
   | Fail_error
+  | Enforcement_failed
 
 @genType
 module Peer = {
@@ -62,6 +63,7 @@ type session = {
   context: context,
   optionsWithTokens: array<option_with_token>,
   verificationLocation: option<Message.location<Peer.unknown>>,
+  deadlineAt: option<float>,
 }
 
 @genType

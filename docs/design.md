@@ -102,8 +102,11 @@ without Telegram (`FlowTest.res` + `MockInterpreter.res`).
 ### Restart recovery
 
 With the `sqlite` backend, sessions persist across restarts but timeout
-observers are in-process only. On boot, `main.ts` lists all pending sessions
-and re-arms one observer per session. Double-arming is harmless because all
+observers are in-process only. Every session stores its original absolute
+60-second deadline. On boot, `main.ts` lists all pending sessions and re-arms
+one observer per session using only the time remaining until that deadline.
+Already-expired sessions and legacy rows without a deadline enter the normal
+claim-first timeout path immediately. Double-arming is harmless because all
 terminal paths claim, and only one claimer wins.
 
 ## 4. Logging and error monitoring
@@ -114,7 +117,7 @@ There are **three distinct surfaces**, and they are not interchangeable:
 | --- | --- | --- |
 | Console | stdout/stderr → Docker logs | debug/info/warn/error for local and container debugging |
 | Sentry | `@sentry/node` → sentry.io SaaS | PII-scrubbed **logs** (levels ≥ `SENTRY_LOG_LEVEL`) and **error events** (warn/error) |
-| LOG_PEER | Telegram channel message | verification audit events (`#REQUEST_START`, `#SUCCESS`, `#FAIL_TIMEOUT`, `#FAIL_ERROR`, …) |
+| LOG_PEER | Telegram channel message | verification audit events (`#REQUEST_START`, `#SUCCESS`, `#FAIL_TIMEOUT`, `#FAIL_ERROR`, `#ENFORCEMENT_FAILED`) |
 
 ### Level policy
 

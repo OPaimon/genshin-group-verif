@@ -45,7 +45,7 @@ export interface SessionStore {
      * resurrect it and let the timeout observer punish an already-verified
      * user.
      */
-    updateLocation: (id: string, loc: Message_location<Peer_unknown>, ttlMs: number) => Promise<void>
+    updateLocation: (id: string, loc: Message_location<Peer_unknown>, ttlMs: number) => Promise<boolean>
     /** All live (unexpired) sessions — used for restart recovery. */
     listAll: () => Promise<session[]>
 }

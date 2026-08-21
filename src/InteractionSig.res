@@ -6,6 +6,9 @@ module type S = {
   /// 从惰性 effect thunk 中恢复同步异常或异步 rejection。
   /// thunk 确保 identity mock 也能捕获 effect 构造期间的同步 throw。
   let recoverError: (() => t<'a>, exn => t<'a>) => t<'a>
+  /// 当前 Unix epoch 毫秒；由解释器提供以保持流程测试确定性。
+  let nowMs: unit => t<float>
+
 
   /// detached timeout observer 的最后一道日志边界；实现必须永不失败。
   let logObserverError: exn => t<unit>
@@ -30,7 +33,7 @@ module type S = {
     ~userId: Domain.Peer.id<Domain.Peer.user>,
     ~decision: Domain.decision,
     ~context: Domain.context,
-  ) => t<unit>
+  ) => t<result<unit, string>>
 
   let logActivity: (~kind: Domain.log_kind, ~chatId: Domain.Peer.id<'a>, ~userId: Domain.Peer.id<Domain.Peer.user>) => t<unit>
 

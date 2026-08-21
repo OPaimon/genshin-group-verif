@@ -13,7 +13,8 @@ export type log_kind =
     "Request_start"
   | "Success"
   | "Fail_timeout"
-  | "Fail_error";
+  | "Fail_error"
+  | "Enforcement_failed";
 
 export abstract class Peer_user { protected opaque!: any }; /* simulate opaque types */
 
@@ -36,7 +37,8 @@ export type session = {
   readonly correctToken: string; 
   readonly context: context; 
   readonly optionsWithTokens: option_with_token[]; 
-  readonly verificationLocation: (undefined | Message_location<Peer_unknown>)
+  readonly verificationLocation: (undefined | Message_location<Peer_unknown>);
+  readonly deadlineAt: (undefined | number)
 };
 
 export type quiz = {

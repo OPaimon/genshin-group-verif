@@ -17,6 +17,7 @@ export function formatLogKind(kind: log_kind): string {
     if (kind === 'Success') return 'SUCCESS'
     if (kind === 'Fail_timeout') return 'FAIL_TIMEOUT'
     if (kind === 'Fail_error') return 'FAIL_ERROR'
+    if (kind === 'Enforcement_failed') return 'ENFORCEMENT_FAILED'
     return String(kind)
 }
 

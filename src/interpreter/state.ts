@@ -35,13 +35,15 @@ export function stateStore(): StateStore {
  * The final arbiter is still `session_claim` — the peek only avoids running
  * the timeout chain in the common (already-handled) case.
  */
-export async function session_waitAndPeek(sessionId: string, delaySec: number): Promise<session | undefined> {
-    await new Promise(resolve => setTimeout(resolve, delaySec * 1000))
+export async function session_waitAndPeek(sessionId: string, delayMs: number): Promise<session | undefined> {
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setTimeout(resolve, delayMs)
+    await promise
 
     const session = await store.session.getById(sessionId)
 
     if (session) {
-        logger.debug(`[Observer] Session ${sessionId} is still active after ${delaySec}s. Triggering timeout logic.`)
+        logger.debug(`[Observer] Session ${sessionId} is still active after ${delayMs}ms. Triggering timeout logic.`)
     } else {
         logger.debug(`[Observer] Session ${sessionId} was already handled/cleaned up. Skipping.`)
     }
@@ -92,6 +94,6 @@ export async function session_claim(id: string): Promise<session | undefined> {
  * Update a session's verificationLocation field (set after the quiz message is
  * sent) — only if the session still exists; a claimed session stays gone.
  */
-export async function session_updateLocation(s: session, loc: Message_location<Peer_unknown>): Promise<void> {
+export async function session_updateLocation(s: session, loc: Message_location<Peer_unknown>): Promise<boolean> {
     return store.session.updateLocation(s.id, loc, SESSION_TTL_MS)
 }

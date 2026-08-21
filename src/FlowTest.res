@@ -116,6 +116,28 @@ describe("startVerification", () => {
     notRemoved("-100:42")
   })
 
+  test("persists an absolute 60s deadline", () => {
+    MockInterpreter.currentTimeMs := 2_000_000.0
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+
+    let sess = MockInterpreter.State.sessions->Map.values->Iterator.toArray->Array.getUnsafe(0)
+    equal(sess.deadlineAt, Some(2_060_000.0), ~message="absolute session deadline")
+    traceHas("Session.waitAndPeek")
+    traceHas("delay=60000ms")
+  })
+
+  test("claimed during challenge send — suppress Request_start", () => {
+    MockInterpreter.returnSessionFromWaitAndPeek := true
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+
+    traceHas("Session.updateLocation")
+    traceHas("→ gone")
+    traceNot("kind=Request_start")
+    sessionCount(0)
+  })
+
   test("happy path — join request", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(Join_request))
 
@@ -172,6 +194,7 @@ describe("startVerification", () => {
       context: In_group,
       optionsWithTokens: [{optionText: "A", token: "tok-a"}, {optionText: "B", token: "tok-correct"}],
       verificationLocation: Some(Message.at(chat(-100.0), 999)),
+      deadlineAt: Some(1_060_000.0),
     }
     MockInterpreter.StateMock.Session.save(old)
     MockInterpreter.trace := []
@@ -256,6 +279,21 @@ describe("startVerification", () => {
     cannotSendOrRemoved("-100:42")
   })
 
+  test("presentChallenge and enforcement fail — audit enforcement failure", () => {
+    MockInterpreter.failPresentChallenge := true
+    MockInterpreter.failEnforceDecision := true
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+
+    traceHas("enforceDecision")
+    traceHas("kind=Enforcement_failed")
+    traceNot("kind=Fail_error")
+    traceNot("kind=Request_start")
+    sessionCount(0)
+    restricted("-100:42")
+    notRemoved("-100:42")
+  })
+
   test("restrict failure — remove immediately without state or challenge", () => {
     MockInterpreter.failRestrictUser := true
 
@@ -302,14 +340,8 @@ describe("startVerification", () => {
     MockInterpreter.failSessionSave := true
     MockInterpreter.failEnforceDecision := true
 
-    let failed = try {
-      MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
-      false
-    } catch {
-    | MockInterpreter.EnforceDecisionFailure => true
-    }
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    ok(failed, ~message="removal failure should propagate")
     traceNth(0, "restrictUser")
     traceHas("Session.save")
     traceHas("enforceDecision")
@@ -418,6 +450,24 @@ describe("handleCallback", () => {
     noCooldowns()
   })
 
+  test("correct answer enforcement failure — audit failure after cleanup", () => {
+    let sess = seedSession()
+    MockInterpreter.failEnforceDecision := true
+
+    MockInterpreter.TestFlow.handleCallback({
+      callbackData: sess.correctToken,
+      queryId: queryId(21),
+      userId: user(42.0),
+      messageLocation: sess.verificationLocation->Option.getOrThrow,
+    })
+
+    traceNth(4, "enforceDecision")
+    traceNth(5, "scheduleCleanup")
+    traceNth(6, "logActivity")
+    traceHas("kind=Enforcement_failed")
+    traceNot("kind=Success")
+  })
+
   test("wrong answer — punish + cooldown", () => {
     let sess = seedSession()
     let wrong = sess.optionsWithTokens
@@ -450,6 +500,27 @@ describe("handleCallback", () => {
     tokenCount(0)
     lookupCount(0)
     hasCooldown("-100:42")
+  })
+
+  test("wrong answer enforcement failure — audit failure and continue cleanup", () => {
+    let sess = seedSession()
+    let wrong = sess.optionsWithTokens
+      ->Array.find(o => o.token != sess.correctToken)
+      ->Option.getOrThrow
+    MockInterpreter.failEnforceDecision := true
+
+    MockInterpreter.TestFlow.handleCallback({
+      callbackData: wrong.token,
+      queryId: queryId(22),
+      userId: user(42.0),
+      messageLocation: sess.verificationLocation->Option.getOrThrow,
+    })
+
+    traceNth(5, "logActivity")
+    traceHas("kind=Enforcement_failed")
+    traceNot("kind=Fail_error")
+    traceNth(6, "scheduleCleanup")
+    traceNth(7, "Cooldown.apply")
   })
 
   test("wrong answer — cooldown failure happens after punishment and audit", () => {
@@ -559,6 +630,46 @@ describe("timeout observer", () => {
     traceHas("Session.claim")
     traceHas("Observer.error")
   })
+
+  test("recovery waits only until the original deadline", () => {
+    let sess = seedSession()
+    MockInterpreter.currentTimeMs := 1_045_000.0
+
+    MockInterpreter.TestFlow.armTimeoutObserver(sess)
+
+    traceHas("Session.waitAndPeek")
+    traceHas("delay=15000ms")
+  })
+
+  test("expired session near the 5-minute TTL edge settles immediately", () => {
+    let sess = seedSession()
+    MockInterpreter.currentTimeMs := 1_299_999.0
+    MockInterpreter.returnSessionFromWaitAndPeek := true
+
+    MockInterpreter.TestFlow.armTimeoutObserver(sess)
+
+    traceNth(0, "Session.waitAndPeek")
+    traceHas("delay=0ms")
+    traceNth(1, "Session.claim")
+    traceHas("→ won")
+    traceHas("decision=Punish_soft")
+    sessionGone(sess.id)
+  })
+
+  test("legacy session without deadline settles immediately", () => {
+    let sess = seedSession()
+    let legacy = {...sess, deadlineAt: None}
+    MockInterpreter.State.sessions->Map.set(legacy.id, legacy)
+    MockInterpreter.returnSessionFromWaitAndPeek := true
+
+    MockInterpreter.TestFlow.armTimeoutObserver(legacy)
+
+    traceNth(0, "Session.waitAndPeek")
+    traceHas("delay=0ms")
+    traceNth(1, "Session.claim")
+    traceHas("decision=Punish_soft")
+    sessionGone(legacy.id)
+  })
 })
 
 // ═════════════════════════════════════════════════════════════
@@ -590,6 +701,19 @@ describe("handleTimeout", () => {
     lookupCount(0)
   })
 
+  test("enforcement failure — preserve timeout UI and audit failure", () => {
+    let sess = seedSession()
+    MockInterpreter.failEnforceDecision := true
+
+    MockInterpreter.TestFlow.handleTimeout(sess)
+
+    traceNth(2, "updateStatus")
+    traceNth(3, "scheduleCleanup")
+    traceNth(4, "logActivity")
+    traceHas("kind=Enforcement_failed")
+    traceNot("kind=Fail_timeout")
+  })
+
   test("without verification message — skip UI ops", () => {
     let bare: session = {
       id: "timeout-sess",
@@ -599,6 +723,7 @@ describe("handleTimeout", () => {
       context: Join_request,
       optionsWithTokens: [],
       verificationLocation: None,
+      deadlineAt: Some(1_060_000.0),
     }
     MockInterpreter.StateMock.Session.save(bare)
     MockInterpreter.trace := []

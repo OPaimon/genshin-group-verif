@@ -59,6 +59,7 @@ let fmtLogKind = (k: log_kind): string =>
   | Success => "Success"
   | Fail_timeout => "Fail_timeout"
   | Fail_error => "Fail_error"
+  | Enforcement_failed => "Enforcement_failed"
   }
 
 // ── Shared mutable state ────────────────────────────────────
@@ -124,10 +125,11 @@ let allocMsgId = (): Message.id => {
   Message.castId(id)
 }
 
-// 测试注入: true 时对应 adapter/state operation 抛错。
+let currentTimeMs: ref<float> = ref(1_000_000.0)
+
+// 测试注入: true 时对应 adapter/state operation 失败。
 let failPresentChallenge: ref<bool> = ref(false)
 exception RestrictUserFailure
-exception EnforceDecisionFailure
 exception SessionSaveFailure
 exception CooldownApplyFailure
 exception WaitAndPeekFailure
@@ -149,6 +151,7 @@ let reset = () => {
     {id: 1, question: "提瓦特大陆有几个国家？", options: ["5", "7", "8", "9"], correctOptionIndex: 1},
     {id: 2, question: "「风神」的名字是？", options: ["钟离", "巴巴托斯", "雷电影", "纳西妲"], correctOptionIndex: 1},
   ]
+  currentTimeMs := 1_000_000.0
   nextMsgId := 1000
   failPresentChallenge := false
   failRestrictUser := false
@@ -175,6 +178,8 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
     } catch {
     | exn => recover(exn)
     }
+
+  let nowMs = () => currentTimeMs.contents
 
   let logObserverError = error => {
     let _ = error
@@ -207,12 +212,14 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
     let key = State.lookupKey(~chatId, ~userId)
     record(`enforceDecision  chat=${fmtPeer(chatId)} user=${fmtPeer(userId)} decision=${fmtDecision(decision)} ctx=${fmtCtx(context)}`)
     if failEnforceDecision.contents {
-      throw(EnforceDecisionFailure)
-    }
-    switch (decision, context) {
-    | (Grant_access, In_group) => State.restrictedUsers->Set.delete(key)->ignore
-    | (Punish_soft, In_group) => State.removedUsers->Set.add(key)->ignore
-    | (_, Join_request) => ()
+      Error("injected")
+    } else {
+      switch (decision, context) {
+      | (Grant_access, In_group) => State.restrictedUsers->Set.delete(key)->ignore
+      | (Punish_soft, In_group) => State.removedUsers->Set.add(key)->ignore
+      | (_, Join_request) => ()
+      }
+      Ok()
     }
   }
 
@@ -311,13 +318,16 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
     }
 
     let updateLocation = (session: session, loc: Message.location<Peer.unknown>) => {
-      let updated = {...session, verificationLocation: Some(loc)}
-      State.sessions->Map.set(session.id, updated)
-      record(`Session.updateLocation  id=${session.id} loc=${fmtLoc(loc)}`)
+      let live = State.sessions->Map.has(session.id)
+      if live {
+        State.sessions->Map.set(session.id, {...session, verificationLocation: Some(loc)})
+      }
+      record(`Session.updateLocation  id=${session.id} loc=${fmtLoc(loc)} → ${live ? "live" : "gone"}`)
+      live
     }
 
-    let waitAndPeek = (~sessionId, ~delaySec) => {
-      record(`Session.waitAndPeek  sessionId=${sessionId} delay=${delaySec->Int.toString}s`)
+    let waitAndPeek = (~sessionId, ~delayMs) => {
+      record(`Session.waitAndPeek  sessionId=${sessionId} delay=${delayMs->Float.toString}ms`)
       if failWaitAndPeek.contents {
         throw(WaitAndPeekFailure)
       }
