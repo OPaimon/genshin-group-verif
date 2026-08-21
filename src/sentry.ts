@@ -45,7 +45,7 @@ function scrubText(text: string): string {
  * may not contain raw long numeric tokens (Telegram IDs). Stack frames are
  * left untouched.
  */
-function sanitizeEvent(event: ErrorEvent): ErrorEvent {
+export function sanitizeEvent(event: ErrorEvent): ErrorEvent {
     if (event.message) {
         event.message = scrubText(event.message)
     }
@@ -53,6 +53,9 @@ function sanitizeEvent(event: ErrorEvent): ErrorEvent {
         if (exception.value) {
             exception.value = scrubText(exception.value)
         }
+    }
+    if (typeof event.extra?.logger_message === 'string') {
+        event.extra.logger_message = scrubText(event.extra.logger_message)
     }
     return event
 }
@@ -117,7 +120,7 @@ export async function initSentry(): Promise<void> {
     initialized = true
 }
 
-function describe(value: unknown): string {
+export function describeValue(value: unknown): string {
     if (typeof value === 'string') return value
     if (value instanceof Error) return `${value.name}: ${value.message}`
     if (value === undefined || value === null) return ''
@@ -144,7 +147,7 @@ export function captureError(error: unknown, level: 'error' | 'warning', context
         return
     }
 
-    const described = describe(error)
+    const described = describeValue(error)
     const message = (context
         ? `${context}${described ? ` ${described}` : ''}`
         : (described || 'unknown error')).trim()
