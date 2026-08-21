@@ -2,11 +2,9 @@
  * StateStore — the pluggable persistence boundary behind StateSig.S.
  *
  * The interface deliberately exposes composite, semantically rich operations
- * (save-with-indexes, claim-everything) instead of raw KV primitives: `claim`
- * arbitrates between competing terminal paths (answer callback vs. timeout)
- * and its all-or-nothing removal must live INSIDE the backend, where each
- * store has a native atomicity primitive — event-loop synchronicity (memory)
- * or a transaction (SQLite).
+ * (atomic pending-slot replacement, claim-everything) instead of raw KV
+ * primitives. Each operation owns its all-or-nothing invariants inside the
+ * backend, using event-loop synchronicity (memory) or a transaction (SQLite).
  *
  * The Redis backend was moved out of the main package; see
  * `archive/state-redis/` and the issue tracking its reintroduction as an
@@ -24,12 +22,12 @@ export interface CooldownStore {
 
 export interface SessionStore {
     /**
-     * Write the session plus all its index entries (every option token →
-     * session id, lookup key → session id), each expiring after ttlMs.
-     * Saving a second session for the same lookup key makes the newer one
-     * the pending session.
+     * Atomically replace the pending slot for this session's lookup key.
+     * The previous pending session becomes unreachable by lookup/token/id but
+     * remains claimable once so an already-running terminal path can finish
+     * without deleting the newer pending mapping.
      */
-    save: (s: session, ttlMs: number) => Promise<void>
+    savePending: (s: session, ttlMs: number) => Promise<session | undefined>
     getById: (id: string) => Promise<session | undefined>
     findByToken: (token: string) => Promise<session | undefined>
     findPending: (lookupKey: string) => Promise<session | undefined>

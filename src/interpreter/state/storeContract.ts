@@ -65,32 +65,32 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         })
     }
 
-    contractTest('save → findByToken finds the session via every option token', async (store) => {
+    contractTest('savePending → findByToken finds the session via every option token', async (store) => {
         const s = makeSession()
-        await store.session.save(s, TTL)
+        assert.equal(await store.session.savePending(s, TTL), undefined)
         for (const opt of s.optionsWithTokens) {
             assertSameSession(await store.session.findByToken(opt.token), s)
         }
         assert.equal(await store.session.findByToken('no-such-token'), undefined)
     })
 
-    contractTest('save → findPending finds the session by lookup key', async (store) => {
+    contractTest('savePending → findPending finds the session by lookup key', async (store) => {
         const s = makeSession()
-        await store.session.save(s, TTL)
+        assert.equal(await store.session.savePending(s, TTL), undefined)
         assertSameSession(await store.session.findPending(sessionLookupKey(s)), s)
         assert.equal(await store.session.findPending('999:999'), undefined)
     })
 
     contractTest('getById round-trips; unknown id → undefined', async (store) => {
         const s = makeSession()
-        await store.session.save(s, TTL)
+        await store.session.savePending(s, TTL)
         assertSameSession(await store.session.getById(s.id), s)
         assert.equal(await store.session.getById('no-such-id'), undefined)
     })
 
     contractTest('deadlineAt round-trips through session persistence', async (store) => {
         const s = makeSession({ deadlineAt: 1_750_000_060_000 })
-        await store.session.save(s, TTL)
+        await store.session.savePending(s, TTL)
         assert.equal((await store.session.getById(s.id))?.deadlineAt, s.deadlineAt)
     })
 
@@ -98,12 +98,12 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         const legacy = makeSession({ deadlineAt: undefined })
         const decoded = decodeSession(encodeSession(legacy))
         assert.equal(decoded.deadlineAt, undefined)
-        await store.session.save(decoded, TTL)
+        await store.session.savePending(decoded, TTL)
         assert.equal((await store.session.getById(decoded.id))?.deadlineAt, undefined)
     })
     contractTest('claim returns the session once and removes all its entries', async (store) => {
         const s = makeSession()
-        await store.session.save(s, TTL)
+        await store.session.savePending(s, TTL)
 
         assertSameSession(await store.session.claim(s.id), s)
 
@@ -117,7 +117,7 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
 
     contractTest('concurrent claims — exactly one winner', async (store) => {
         const s = makeSession()
-        await store.session.save(s, TTL)
+        await store.session.savePending(s, TTL)
 
         const results = await Promise.all(
             Array.from({ length: 5 }, () => store.session.claim(s.id)),
@@ -129,7 +129,7 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
 
     contractTest('updateLocation sets verificationLocation on a live session', async (store) => {
         const s = makeSession()
-        await store.session.save(s, TTL)
+        await store.session.savePending(s, TTL)
 
         const loc = Message_at(s.chatId, 777)
         assert.equal(await store.session.updateLocation(s.id, loc, TTL), true)
@@ -143,7 +143,7 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
 
     contractTest('updateLocation after claim does NOT resurrect the session', async (store) => {
         const s = makeSession()
-        await store.session.save(s, TTL)
+        await store.session.savePending(s, TTL)
         await store.session.claim(s.id)
 
         const loc = Message_at(s.chatId, 777)
@@ -155,7 +155,7 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
 
     contractTest('sessions expire after their TTL', async (store) => {
         const s = makeSession()
-        await store.session.save(s, SHORT_TTL)
+        await store.session.savePending(s, SHORT_TTL)
         await sleep(EXPIRY_WAIT)
 
         assert.equal(await store.session.getById(s.id), undefined)
@@ -164,20 +164,25 @@ export function runStoreContract(name: string, makeStore: () => Promise<StateSto
         assert.equal(await store.session.claim(s.id), undefined, 'claim must not win an expired session')
     })
 
-    contractTest('newer session wins the pending lookup for the same user', async (store) => {
+    contractTest('savePending replaces one lookup slot without letting an old claim erase the winner', async (store) => {
         const s1 = makeSession()
         const s2 = makeSession({ chatId: s1.chatId, userId: s1.userId })
-        await store.session.save(s1, TTL)
-        await store.session.save(s2, TTL)
+        assert.equal(await store.session.savePending(s1, TTL), undefined)
+        assertSameSession(await store.session.savePending(s2, TTL), s1)
 
+        for (const opt of s1.optionsWithTokens) {
+            assert.equal(await store.session.findByToken(opt.token), undefined, 'replaced tokens must be unreachable')
+        }
+        assertSameSession(await store.session.claim(s1.id), s1)
         assertSameSession(await store.session.findPending(sessionLookupKey(s1)), s2)
+        assertSameSession(await store.session.claim(s2.id), s2)
     })
 
     contractTest('listAll returns live sessions and omits claimed ones', async (store) => {
         const a = makeSession({ userId: toUserPeerId(1) })
         const b = makeSession({ userId: toUserPeerId(2) })
-        await store.session.save(a, TTL)
-        await store.session.save(b, TTL)
+        await store.session.savePending(a, TTL)
+        await store.session.savePending(b, TTL)
         await store.session.claim(a.id)
 
         const all = await store.session.listAll()

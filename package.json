@@ -20,7 +20,7 @@
         "res:build": "rescript",
         "res:clean": "rescript clean",
         "res:dev": "rescript watch",
-        "test": "rescript && node --test src/FlowTest.res.mjs && node --import tsx --import ./src/interpreter/testEnv.ts --test build.test.mjs src/interpreter/interaction.test.ts src/interpreter/messages.test.ts src/interpreter/task.test.ts src/interpreter/ttlMap.test.ts src/interpreter/state/memoryStore.test.ts src/interpreter/state/sqliteStore.test.ts"
+        "test": "rescript && node --test src/FlowTest.res.mjs && node --import tsx --import ./src/interpreter/testEnv.ts --test build.test.mjs src/flowParallel.test.ts src/interpreter/interaction.test.ts src/interpreter/messages.test.ts src/interpreter/task.test.ts src/interpreter/ttlMap.test.ts src/interpreter/state/memoryStore.test.ts src/interpreter/state/sqliteStore.test.ts"
     },
     "dependencies": {
         "@mtcute/dispatcher": "^0.31.0",

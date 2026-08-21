@@ -9,7 +9,8 @@ module type S = {
   }
 
   module Session: {
-    let save: Domain.session => t<unit>
+    /// 原子占用 pending slot；返回被替换且已失去 lookup/token 可达性的旧会话。
+    let savePending: Domain.session => t<option<Domain.session>>
     let findByToken: string => t<option<Domain.session>>
     let findPending: (~chatId: Domain.Peer.id<'a>, ~userId: Domain.Peer.id<Domain.Peer.user>) => t<option<Domain.session>>
 

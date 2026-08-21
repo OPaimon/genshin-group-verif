@@ -71,9 +71,12 @@ without Telegram (`FlowTest.res` + `MockInterpreter.res`).
    restriction. Join requests remain outside the group and need no quarantine.
 2. Cooldown, pending-session, and quiz checks run only after in-group quarantine
    is confirmed.
-3. The session is saved before its timeout observer and challenge are created.
-   Restriction or save failure stops the flow and applies the failure decision
-   (kick for an in-group member, decline for a join request).
+3. The session atomically replaces the pending slot before its timeout observer
+   and challenge are created. A raced-out session loses all lookup/token
+   reachability; an existing challenge is scheduled for cleanup without a
+   terminal decision. Restriction or persistence failure stops the flow and
+   applies the failure decision (kick for an in-group member, decline for a
+   join request).
 4. The user answers via callback button. `Flow.handleCallback` resolves the
    token to a session and evaluates the answer.
 5. Pass → the decision is enforced (approve join request / lift restriction).
@@ -92,6 +95,9 @@ without Telegram (`FlowTest.res` + `MockInterpreter.res`).
   the flow cannot treat a failed safety operation as success.
 - If saving fails after quarantine, the bot attempts to kick the entrant. If
   that removal also fails, the indefinite restriction remains the safety state.
+- Sequential duplicate entries retain cleanup-and-bail UX. Concurrent starts
+  use last-writer-wins pending replacement, leaving exactly one live session;
+  only a claim winner may enforce a terminal decision.
 - Timeout observers guarantee a saved pending session always terminates.
 - Logging/audit side effects must never break the verification chain:
   `interaction_logActivity` catches every Telegram call.

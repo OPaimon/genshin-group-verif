@@ -93,7 +93,7 @@ describe("startVerification", () => {
     traceNth(1, "Cooldown.check")
     traceNth(2, "Session.findPending")
     traceNth(3, "Quiz.getRandom")
-    traceNth(4, "Session.save")
+    traceNth(4, "Session.savePending")
     traceNth(5, "Session.waitAndPeek")
     traceNth(6, "presentChallenge")
     // 用户名与超时时长都来自输入, 不再由解释器另行拉取/硬编码
@@ -127,13 +127,14 @@ describe("startVerification", () => {
     traceHas("delay=60000ms")
   })
 
-  test("claimed during challenge send — suppress Request_start", () => {
+  test("claimed during challenge send — clean obsolete challenge and suppress Request_start", () => {
     MockInterpreter.returnSessionFromWaitAndPeek := true
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
     traceHas("Session.updateLocation")
     traceHas("→ gone")
+    traceHas("scheduleCleanup")
     traceNot("kind=Request_start")
     sessionCount(0)
   })
@@ -146,7 +147,7 @@ describe("startVerification", () => {
     traceNth(1, "Session.findPending")
     traceNot("restrictUser")
     traceNth(2, "Quiz.getRandom")
-    traceNth(3, "Session.save")
+    traceNth(3, "Session.savePending")
     traceNth(4, "Session.waitAndPeek")
     traceNth(5, "presentChallenge")
     traceHas("presentChallenge  chat=42")
@@ -196,7 +197,7 @@ describe("startVerification", () => {
       verificationLocation: Some(Message.at(chat(-100.0), 999)),
       deadlineAt: Some(1_060_000.0),
     }
-    MockInterpreter.StateMock.Session.save(old)
+    MockInterpreter.StateMock.Session.savePending(old)->ignore
     MockInterpreter.trace := []
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
@@ -212,6 +213,10 @@ describe("startVerification", () => {
     traceHas("正在进行的验证")
     traceHas("enforceDecision")
 
+    traceNot("Quiz.getRandom")
+    traceNot("Session.savePending")
+    traceNot("Session.waitAndPeek")
+    traceNot("presentChallenge")
     // old session fully removed, no new session created
     sessionGone("old-sess-1")
     tokenGone("tok-a")
@@ -256,7 +261,7 @@ describe("startVerification", () => {
     traceNth(1, "Cooldown.check")
     traceNth(2, "Session.findPending")
     traceNth(3, "Quiz.getRandom")
-    traceNth(4, "Session.save")
+    traceNth(4, "Session.savePending")
     traceNth(5, "Session.waitAndPeek")
     traceNth(6, "presentChallenge")
     traceNth(7, "Session.claim")
@@ -304,7 +309,7 @@ describe("startVerification", () => {
     traceNth(1, "enforceDecision")
     traceHas("decision=Punish_soft")
     traceNot("Cooldown.check")
-    traceNot("Session.save")
+    traceNot("Session.savePending")
     traceNot("Session.waitAndPeek")
     traceNot("presentChallenge")
     sessionCount(0)
@@ -314,7 +319,7 @@ describe("startVerification", () => {
   })
 
   test("in-group save failure — remove while quarantine is established", () => {
-    MockInterpreter.failSessionSave := true
+    MockInterpreter.failSessionSavePending := true
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
@@ -323,7 +328,7 @@ describe("startVerification", () => {
     traceNth(1, "Cooldown.check")
     traceNth(2, "Session.findPending")
     traceNth(3, "Quiz.getRandom")
-    traceNth(4, "Session.save")
+    traceNth(4, "Session.savePending")
     traceNth(5, "enforceDecision")
     traceHas("decision=Punish_soft")
     traceNot("Session.waitAndPeek")
@@ -337,13 +342,13 @@ describe("startVerification", () => {
   })
 
   test("in-group save and removal failure — user remains quarantined", () => {
-    MockInterpreter.failSessionSave := true
+    MockInterpreter.failSessionSavePending := true
     MockInterpreter.failEnforceDecision := true
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
     traceNth(0, "restrictUser")
-    traceHas("Session.save")
+    traceHas("Session.savePending")
     traceHas("enforceDecision")
     traceNot("Session.waitAndPeek")
     traceNot("presentChallenge")
@@ -353,7 +358,7 @@ describe("startVerification", () => {
   })
 
   test("join-request save failure — decline without challenge", () => {
-    MockInterpreter.failSessionSave := true
+    MockInterpreter.failSessionSavePending := true
 
     MockInterpreter.TestFlow.startVerification(defaultInput(Join_request))
 
@@ -361,7 +366,7 @@ describe("startVerification", () => {
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
     traceNth(2, "Quiz.getRandom")
-    traceNth(3, "Session.save")
+    traceNth(3, "Session.savePending")
     traceNth(4, "enforceDecision")
     traceHas("decision=Punish_soft")
     traceHas("ctx=Join_request")
@@ -380,7 +385,7 @@ describe("startVerification", () => {
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
     traceNth(2, "Quiz.getRandom")
-    traceNth(3, "Session.save")
+    traceNth(3, "Session.savePending")
     traceNth(4, "Session.waitAndPeek")
     traceNth(5, "presentChallenge")
     traceHas("presentChallenge  chat=42")
@@ -725,7 +730,7 @@ describe("handleTimeout", () => {
       verificationLocation: None,
       deadlineAt: Some(1_060_000.0),
     }
-    MockInterpreter.StateMock.Session.save(bare)
+    MockInterpreter.StateMock.Session.savePending(bare)->ignore
     MockInterpreter.trace := []
 
     MockInterpreter.TestFlow.handleTimeout(bare)

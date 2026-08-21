@@ -1,9 +1,9 @@
 /**
  * In-memory StateStore — TTLMap-backed, process-local, volatile.
  *
- * Atomicity of `claim` relies on JS event-loop synchronicity: there is no
- * `await` between the lookup and the deletes, so the whole claim runs as one
- * uninterrupted step and concurrent claimers can never both win.
+ * Atomicity relies on JS event-loop synchronicity: pending replacement and
+ * claims contain no `await` before their mutations, so concurrent callers
+ * cannot interleave inside either operation.
  */
 
 import type { Message_location, Peer_unknown, session } from '../../Domain.gen.js'
@@ -15,6 +15,8 @@ import { sessionLookupKey } from './store.js'
 export function createMemoryStore(): StateStore {
     // Session store: sessionId → session
     const sessionById = new TTLMap<string, session>()
+    // Replaced sessions are no longer reachable, but remain claimable once.
+    const evictedById = new TTLMap<string, session>()
     // Token reverse index: token → sessionId (all option tokens, not just correct)
     const tokenIndex = new TTLMap<string, string>()
     // Pending lookup: "chatId:userId" → sessionId
@@ -32,14 +34,25 @@ export function createMemoryStore(): StateStore {
             },
         },
         session: {
-            async save(s, ttlMs) {
+            async savePending(s, ttlMs) {
+                const lookupKey = sessionLookupKey(s)
+                const replacedId = lookupIndex.get(lookupKey)
+                const replaced = replacedId === undefined ? undefined : sessionById.get(replacedId)
+
+                if (replaced !== undefined) {
+                    sessionById.delete(replaced.id)
+                    if (replaced.id !== s.id) evictedById.set(replaced.id, replaced, ttlMs)
+                    for (const opt of replaced.optionsWithTokens) {
+                        if (tokenIndex.get(opt.token) === replaced.id) tokenIndex.delete(opt.token)
+                    }
+                }
+
                 sessionById.set(s.id, s, ttlMs)
-                // Index ALL option tokens → sessionId (not just the correct one),
-                // so findByToken works for any clicked button.
                 for (const opt of s.optionsWithTokens) {
                     tokenIndex.set(opt.token, s.id, ttlMs)
                 }
-                lookupIndex.set(sessionLookupKey(s), s.id, ttlMs)
+                lookupIndex.set(lookupKey, s.id, ttlMs)
+                return replaced
             },
             async getById(id) {
                 return sessionById.get(id)
@@ -57,13 +70,17 @@ export function createMemoryStore(): StateStore {
             // Atomicity invariant: NO `await` before the store mutations — the
             // lookup + deletes must run as one uninterrupted event-loop step.
             async claim(id) {
-                const claimed = sessionById.get(id)
+                const live = sessionById.get(id)
+                const claimed = live ?? evictedById.get(id)
                 if (claimed === undefined) return undefined
+
                 for (const opt of claimed.optionsWithTokens) {
-                    tokenIndex.delete(opt.token)
+                    if (tokenIndex.get(opt.token) === claimed.id) tokenIndex.delete(opt.token)
                 }
-                lookupIndex.delete(sessionLookupKey(claimed))
+                const lookupKey = sessionLookupKey(claimed)
+                if (lookupIndex.get(lookupKey) === claimed.id) lookupIndex.delete(lookupKey)
                 sessionById.delete(claimed.id)
+                evictedById.delete(claimed.id)
                 return claimed
             },
             async updateLocation(id, loc: Message_location<Peer_unknown>, ttlMs) {
@@ -80,6 +97,7 @@ export function createMemoryStore(): StateStore {
         },
         async close() {
             sessionById.dispose()
+            evictedById.dispose()
             tokenIndex.dispose()
             lookupIndex.dispose()
             cooldownMap.dispose()

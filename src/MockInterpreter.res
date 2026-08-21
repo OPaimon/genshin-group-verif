@@ -130,13 +130,13 @@ let currentTimeMs: ref<float> = ref(1_000_000.0)
 // 测试注入: true 时对应 adapter/state operation 失败。
 let failPresentChallenge: ref<bool> = ref(false)
 exception RestrictUserFailure
-exception SessionSaveFailure
+exception SessionSavePendingFailure
 exception CooldownApplyFailure
 exception WaitAndPeekFailure
 exception SessionClaimFailure
 let failRestrictUser: ref<bool> = ref(false)
 let failEnforceDecision: ref<bool> = ref(false)
-let failSessionSave: ref<bool> = ref(false)
+let failSessionSavePending: ref<bool> = ref(false)
 let failCooldownApply: ref<bool> = ref(false)
 let failWaitAndPeek: ref<bool> = ref(false)
 let returnSessionFromWaitAndPeek: ref<bool> = ref(false)
@@ -156,7 +156,7 @@ let reset = () => {
   failPresentChallenge := false
   failRestrictUser := false
   failEnforceDecision := false
-  failSessionSave := false
+  failSessionSavePending := false
   failCooldownApply := false
   failWaitAndPeek := false
   returnSessionFromWaitAndPeek := false
@@ -270,17 +270,27 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
   }
 
   module Session = {
-    let save = (session: session) => {
-      record(`Session.save  id=${session.id}`)
-      if failSessionSave.contents {
-        throw(SessionSaveFailure)
+    let savePending = (session: session) => {
+      record(`Session.savePending  id=${session.id}`)
+      if failSessionSavePending.contents {
+        throw(SessionSavePendingFailure)
       }
+      let lk = State.lookupKey(~chatId=session.chatId, ~userId=session.userId)
+      let replaced = State.lookupIndex->Map.get(lk)->Option.flatMap(id => State.sessions->Map.get(id))
+      replaced->Option.forEach(old => {
+        old.optionsWithTokens->Array.forEach(o => {
+          if State.tokenIndex->Map.get(o.token) == Some(old.id) {
+            State.tokenIndex->Map.delete(o.token)->ignore
+          }
+        })
+        State.sessions->Map.delete(old.id)->ignore
+      })
       State.sessions->Map.set(session.id, session)
       session.optionsWithTokens->Array.forEach(o => {
         State.tokenIndex->Map.set(o.token, session.id)
       })
-      let lk = State.lookupKey(~chatId=session.chatId, ~userId=session.userId)
       State.lookupIndex->Map.set(lk, session.id)
+      replaced
     }
 
     let findByToken = (token: string) => {
@@ -307,10 +317,14 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
       switch claimed {
       | Some(s) =>
         s.optionsWithTokens->Array.forEach(o => {
-          State.tokenIndex->Map.delete(o.token)->ignore
+          if State.tokenIndex->Map.get(o.token) == Some(s.id) {
+            State.tokenIndex->Map.delete(o.token)->ignore
+          }
         })
         let lk = State.lookupKey(~chatId=s.chatId, ~userId=s.userId)
-        State.lookupIndex->Map.delete(lk)->ignore
+        if State.lookupIndex->Map.get(lk) == Some(s.id) {
+          State.lookupIndex->Map.delete(lk)->ignore
+        }
         State.sessions->Map.delete(sessionId)->ignore
       | None => ()
       }

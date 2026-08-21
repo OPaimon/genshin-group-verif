@@ -50,6 +50,14 @@ module Make = (
       }
     )
 
+  // savePending 已经移除旧会话；替换不是终态，不得 claim 或执行裁决。
+  let cleanupReplaced = (replaced: option<session>) =>
+    switch replaced {
+    | Some({verificationLocation: Some(loc)}) =>
+      I.scheduleMessageCleanup(~loc, ~delaySec=messageDeletionDelaySec)
+    | Some({verificationLocation: None}) | None => return()
+    }
+
   let auditKind = (enforcement, terminalKind) =>
     switch enforcement {
     | Ok() => terminalKind
@@ -203,13 +211,17 @@ module Make = (
                     let dest = targetChat(session)
 
                     recoverError(
-                      () => S.Session.save(session)->bind(() => Some(session)->return),
+                      () =>
+                        S.Session.savePending(session)->bind(replaced =>
+                          Some((session, replaced))->return
+                        ),
                       _error => punish()->bind(_ => None->return),
                     )
                     ->bind(saved =>
                       switch saved {
                       | None => return()
-                      | Some(session) => {
+                      | Some((session, replaced)) =>
+                        cleanupReplaced(replaced)->bind(() => {
                           // 兜底观察者仍先挂上; presentChallenge 返回 option, 发送失败
                           // 不再打断整条链, 而是进入下方 None 分支立即裁决
                           armTimeoutObserver(session)
@@ -221,12 +233,16 @@ module Make = (
                             ~options,
                             ~timeoutSec=verificationTimeoutSec,
                           )
-                        }
+                        })
                         ->bind(sent =>
                           switch sent {
                           | Some(loc) =>
                             S.Session.updateLocation(session, loc)
-                            ->bind(live => live ? I.logActivity(~kind=Request_start, ~chatId, ~userId) : return())
+                            ->bind(live =>
+                              live
+                                ? I.logActivity(~kind=Request_start, ~chatId, ~userId)
+                                : I.scheduleMessageCleanup(~loc, ~delaySec=messageDeletionDelaySec)
+                            )
                           | None => rejectChallengeSendFailure(session)
                           }
                         )

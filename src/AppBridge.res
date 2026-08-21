@@ -56,7 +56,7 @@ external cooldownCheckImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<bool> =
 external cooldownApplyImpl: (Peer.id<'a>, Peer.id<Peer.user>, int) => promise<unit> = "cooldown_apply"
 
 @module("./interpreter/state.js")
-external sessionSaveImpl: session => promise<unit> = "session_save"
+external sessionSavePendingImpl: session => promise<option<session>> = "session_savePending"
 
 @module("./interpreter/state.js")
 external sessionFindByTokenImpl: string => promise<option<session>> = "session_findByToken"
@@ -122,7 +122,7 @@ module State: StateSig.S with type t<'a> = promise<'a> = {
   }
 
   module Session = {
-    let save = sessionSaveImpl
+    let savePending = sessionSavePendingImpl
     let findByToken = sessionFindByTokenImpl
     let findPending = (~chatId, ~userId) =>
       sessionFindPendingImpl(chatId, userId)

@@ -36,9 +36,7 @@ export function stateStore(): StateStore {
  * the timeout chain in the common (already-handled) case.
  */
 export async function session_waitAndPeek(sessionId: string, delayMs: number): Promise<session | undefined> {
-    const { promise, resolve } = Promise.withResolvers<void>()
-    setTimeout(resolve, delayMs)
-    await promise
+    await new Promise<void>(resolve => setTimeout(resolve, delayMs))
 
     const session = await store.session.getById(sessionId)
 
@@ -63,11 +61,11 @@ export async function cooldown_apply(chatId: Peer_id<any>, userId: Peer_id<Peer_
 
 // ── Session ─────────────────────────────────────────────────
 
-export async function session_save(s: session): Promise<void> {
+export async function session_savePending(s: session): Promise<session | undefined> {
     try {
-        await store.session.save(s, SESSION_TTL_MS)
+        return await store.session.savePending(s, SESSION_TTL_MS)
     } catch (err: unknown) {
-        logger.error('[Session.save] Failed:', err)
+        logger.error('[Session.savePending] Failed:', err)
         throw err
     }
 }

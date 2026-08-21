@@ -4,8 +4,8 @@
  * Deliberately NOT better-sqlite3: that addon has no prebuilt binary for
  * current Node and needs a full MSVC toolchain to compile, while node:sqlite
  * (unflagged since Node 22.13 / 23.4) offers the same synchronous API.
- * Synchronous means a BEGIN…COMMIT block runs as one uninterrupted event-loop
- * step: `claim` is atomic both against SQLite and against concurrent JS
+ * Synchronous transactions run as one uninterrupted event-loop step, making
+ * pending-slot replacement and claims atomic against SQLite and concurrent JS
  * callers.
  *
  * TTL is an expires_at column: reads filter on it, and a periodic sweep
@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_lookup ON sessions(lookup_key);
+CREATE TABLE IF NOT EXISTS evicted_sessions (
+    id         TEXT PRIMARY KEY,
+    data       TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS session_tokens (
     token      TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -51,6 +56,12 @@ export function createSqliteStore(path: string): StateStore {
     db.exec('PRAGMA journal_mode = WAL')
     db.exec(SCHEMA)
 
+    const selectPendingForReplacement = db.prepare(
+        'SELECT id, data FROM sessions WHERE lookup_key = ? AND expires_at > ? ORDER BY rowid DESC',
+    )
+    const insertEvicted = db.prepare(
+        'INSERT OR REPLACE INTO evicted_sessions (id, data, expires_at) VALUES (?, ?, ?)',
+    )
     const insertSession = db.prepare(
         'INSERT OR REPLACE INTO sessions (id, lookup_key, data, expires_at) VALUES (?, ?, ?, ?)',
     )
@@ -73,6 +84,10 @@ export function createSqliteStore(path: string): StateStore {
         'SELECT data FROM sessions WHERE expires_at > ?',
     )
     const deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?')
+    const selectEvictedById = db.prepare(
+        'SELECT data FROM evicted_sessions WHERE id = ? AND expires_at > ?',
+    )
+    const deleteEvicted = db.prepare('DELETE FROM evicted_sessions WHERE id = ?')
     const deleteTokens = db.prepare('DELETE FROM session_tokens WHERE session_id = ?')
     const updateSession = db.prepare(
         'UPDATE sessions SET data = ?, expires_at = ? WHERE id = ?',
@@ -85,6 +100,7 @@ export function createSqliteStore(path: string): StateStore {
     )
     const sweepTokens = db.prepare('DELETE FROM session_tokens WHERE expires_at <= ?')
     const sweepSessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?')
+    const sweepEvicted = db.prepare('DELETE FROM evicted_sessions WHERE expires_at <= ?')
     const sweepCooldowns = db.prepare('DELETE FROM cooldowns WHERE expires_at <= ?')
 
     // node:sqlite has no transaction() helper — BEGIN/COMMIT manually. The
@@ -107,6 +123,7 @@ export function createSqliteStore(path: string): StateStore {
     const sweepTimer = setInterval(() => {
         const now = Date.now()
         sweepTokens.run(now)
+        sweepEvicted.run(now)
         sweepSessions.run(now)
         sweepCooldowns.run(now)
     }, SWEEP_INTERVAL_MS)
@@ -122,13 +139,27 @@ export function createSqliteStore(path: string): StateStore {
             },
         },
         session: {
-            async save(s, ttlMs) {
-                tx(() => {
-                    const expiresAt = Date.now() + ttlMs
+            async savePending(s, ttlMs) {
+                return tx(() => {
+                    const now = Date.now()
+                    const expiresAt = now + ttlMs
+                    const replacedRows = selectPendingForReplacement.all(sessionLookupKey(s), now) as Array<{
+                        id: string
+                        data: string
+                    }>
+                    const replaced = replacedRows[0] === undefined ? undefined : decodeSession(replacedRows[0].data)
+
+                    for (const replacedRow of replacedRows) {
+                        deleteTokens.run(replacedRow.id)
+                        deleteSession.run(replacedRow.id)
+                        if (replacedRow.id !== s.id) insertEvicted.run(replacedRow.id, replacedRow.data, expiresAt)
+                    }
+
                     insertSession.run(s.id, sessionLookupKey(s), encodeSession(s), expiresAt)
                     for (const opt of s.optionsWithTokens) {
                         insertToken.run(opt.token, s.id, expiresAt)
                     }
+                    return replaced
                 })
             },
             async getById(id) {
@@ -146,10 +177,13 @@ export function createSqliteStore(path: string): StateStore {
             },
             async claim(id) {
                 return tx(() => {
-                    const data = rowData(selectById.get(id, Date.now()))
+                    const now = Date.now()
+                    const liveData = rowData(selectById.get(id, now))
+                    const data = liveData ?? rowData(selectEvictedById.get(id, now))
                     if (data === undefined) return undefined
                     deleteTokens.run(id)
                     deleteSession.run(id)
+                    deleteEvicted.run(id)
                     return decodeSession(data)
                 })
             },
