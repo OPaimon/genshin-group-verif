@@ -6,6 +6,9 @@ external pureImpl: 'a => promise<'a> = "pure"
 @module("./interpreter/task.js")
 external bindImpl: (promise<'a>, 'a => promise<'b>) => promise<'b> = "bind"
 
+@module("./interpreter/task.js")
+external recoverErrorImpl: (() => promise<'a>, exn => promise<'a>) => promise<'a> = "recoverError"
+
 @module("./interpreter/interaction.js")
 external presentChallengeImpl: (
   Peer.id<'a>,
@@ -36,6 +39,9 @@ external scheduleMessageCleanupImpl: (Message.location<'a>, int) => promise<unit
 
 @module("./interpreter/interaction.js")
 external restrictUserImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<unit> = "interaction_restrictUser"
+
+@module("./interpreter/interaction.js")
+external logObserverErrorImpl: exn => promise<unit> = "interaction_logObserverError"
 
 @module("./interpreter/state.js")
 external sessionWaitAndPeekImpl: (string, int) => promise<option<session>> = "session_waitAndPeek"
@@ -72,6 +78,8 @@ module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
 
   let pure = pureImpl
   let bind = bindImpl
+  let recoverError = recoverErrorImpl
+  let logObserverError = logObserverErrorImpl
 
   let presentChallenge = (~chatId, ~userId, ~userFirstName, ~question, ~options, ~timeoutSec) =>
     presentChallengeImpl(chatId, userId, userFirstName, question, options, timeoutSec)

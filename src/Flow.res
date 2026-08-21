@@ -12,6 +12,7 @@ module Make = (
 ) => {
   let return = I.pure
   let bind = I.bind
+  let recoverError = I.recoverError
 
   // ── helpers ───────────────────────────────
 
@@ -109,15 +110,19 @@ module Make = (
       }
     )
 
-  // fork: 启动超时观察者, 但不并入调用者的效应链 — 兜底不能依赖后续效应成功。
-  // 注意: 被丢弃的链绝不能 reject, 其中各效应的实现必须自行吞掉错误。
+  // fork: 启动超时观察者, 但不并入调用者的效应链。
+  // 整条链从构造到执行都在 recoverError 内，结构上不能 reject。
   let armTimeoutObserver = (session: session) =>
-    S.Session.waitAndPeek(~sessionId=session.id, ~delaySec=sessionCleanupDelaySec)
-    ->bind(maybeSession =>
-      switch maybeSession {
-      | Some(session) => handleTimeout(session)
-      | None => return()
-      }
+    recoverError(
+      () =>
+        S.Session.waitAndPeek(~sessionId=session.id, ~delaySec=sessionCleanupDelaySec)
+        ->bind(maybeSession =>
+          switch maybeSession {
+          | Some(session) => handleTimeout(session)
+          | None => return()
+          }
+        ),
+      error => I.logObserverError(error),
     )
     ->discard
 

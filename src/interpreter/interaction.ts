@@ -217,6 +217,18 @@ export async function interaction_scheduleMessageCleanup(loc: Message_location<a
     }, delaySec * 1000)
 }
 
+/** Last-resort logging for detached timeout observers. Must never reject. */
+export function interaction_logObserverError(error: unknown): Promise<void> {
+    try {
+        logger.error('[Observer] Timeout observer failed:', error)
+    } catch {
+        try {
+            console.error('[Observer] Timeout observer failed; logger also failed')
+        } catch {}
+    }
+    return Promise.resolve()
+}
+
 /**
  * Mute a user in a supergroup while their verification is pending.
  * Note: mtcute's restrictChatMember only supports supergroups/channels;

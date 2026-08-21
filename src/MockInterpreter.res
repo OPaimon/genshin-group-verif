@@ -122,6 +122,11 @@ let allocMsgId = (): Message.id => {
 let failPresentChallenge: ref<bool> = ref(false)
 exception CooldownApplyFailure
 let failCooldownApply: ref<bool> = ref(false)
+exception WaitAndPeekFailure
+exception SessionClaimFailure
+let failWaitAndPeek: ref<bool> = ref(false)
+let returnSessionFromWaitAndPeek: ref<bool> = ref(false)
+let failSessionClaim: ref<bool> = ref(false)
 
 // ── Master reset ────────────────────────────────────────────
 
@@ -135,6 +140,9 @@ let reset = () => {
   nextMsgId := 1000
   failPresentChallenge := false
   failCooldownApply := false
+  failWaitAndPeek := false
+  returnSessionFromWaitAndPeek := false
+  failSessionClaim := false
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -146,6 +154,17 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
 
   let pure = (x: 'a): 'a => x
   let bind = (x: 'a, f: 'a => 'b): 'b => f(x)
+  let recoverError = (task, recover) =>
+    try {
+      task()
+    } catch {
+    | exn => recover(exn)
+    }
+
+  let logObserverError = error => {
+    let _ = error
+    record("Observer.error")
+  }
 
   let presentChallenge = (~chatId, ~userId, ~userFirstName, ~question, ~options, ~timeoutSec) => {
     let optStr = options->Array.map(((text, tok)) => `"${text}"(${tok})`)->Array.join(", ")
@@ -242,6 +261,10 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
 
     let claim = (sessionId: string) => {
       let claimed = State.sessions->Map.get(sessionId)
+      record(`Session.claim  id=${sessionId} → ${claimed->Option.isSome ? "won" : "lost"}`)
+      if failSessionClaim.contents {
+        throw(SessionClaimFailure)
+      }
       switch claimed {
       | Some(s) =>
         s.optionsWithTokens->Array.forEach(o => {
@@ -252,7 +275,6 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
         State.sessions->Map.delete(sessionId)->ignore
       | None => ()
       }
-      record(`Session.claim  id=${sessionId} → ${claimed->Option.isSome ? "won" : "lost"}`)
       claimed
     }
 
@@ -264,7 +286,12 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
 
     let waitAndPeek = (~sessionId, ~delaySec) => {
       record(`Session.waitAndPeek  sessionId=${sessionId} delay=${delaySec->Int.toString}s`)
-      None
+      if failWaitAndPeek.contents {
+        throw(WaitAndPeekFailure)
+      }
+      returnSessionFromWaitAndPeek.contents
+        ? State.sessions->Map.get(sessionId)
+        : None
     }
   }
 }

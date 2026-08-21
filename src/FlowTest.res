@@ -419,6 +419,42 @@ describe("handleCallback", () => {
   })
 })
 
+describe("timeout observer", () => {
+  beforeEach(() => MockInterpreter.reset())
+
+  test("contains waitAndPeek failures", () => {
+    let sess = seedSession()
+    MockInterpreter.failWaitAndPeek := true
+
+    let escaped = try {
+      MockInterpreter.TestFlow.armTimeoutObserver(sess)
+      false
+    } catch {
+    | MockInterpreter.WaitAndPeekFailure => true
+    }
+
+    ok(escaped == false, ~message="waitAndPeek failure must not escape the detached observer")
+    traceHas("Observer.error")
+  })
+
+  test("contains claim failures", () => {
+    let sess = seedSession()
+    MockInterpreter.returnSessionFromWaitAndPeek := true
+    MockInterpreter.failSessionClaim := true
+
+    let escaped = try {
+      MockInterpreter.TestFlow.armTimeoutObserver(sess)
+      false
+    } catch {
+    | MockInterpreter.SessionClaimFailure => true
+    }
+
+    ok(escaped == false, ~message="claim failure must not escape the detached observer")
+    traceHas("Session.claim")
+    traceHas("Observer.error")
+  })
+})
+
 // ═════════════════════════════════════════════════════════════
 // describe: handleTimeout
 // ═════════════════════════════════════════════════════════════
