@@ -217,7 +217,7 @@ monitoring plus log forwarding):
   integration points and the `@sentry/node` dependency — the `logger` API stays
   and degrades to console-only.
 
-## 7. Known discrepancies
+## 7. External data validation
 
-- `.github/copilot-instructions.md` claims env validation uses Zod; the code
-  validates by hand (`src/env.ts`). This document is authoritative: no Zod.
+- `src/env.ts` uses Valibot to validate and convert process environment values at startup.
+- `src/interpreter/quizSource.ts` decodes quiz JSON into trusted domain quizzes at the filesystem seam.

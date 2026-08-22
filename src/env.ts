@@ -1,54 +1,95 @@
-const { API_ID, API_HASH, BOT_TOKEN, LOG_PEER, ADMIN_IDS, AD_LIST_URL, STATE_BACKEND, STATE_SQLITE_PATH, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_LOG_LEVEL, SENTRY_SCRUB_PII } = process.env
+import * as v from 'valibot'
 
-if (!API_ID || !API_HASH || !BOT_TOKEN || !LOG_PEER || Number.isNaN(Number(API_ID)) || Number.isNaN(Number(LOG_PEER))) {
-    throw new Error('Invalid env: API_ID, API_HASH, BOT_TOKEN, and LOG_PEER are required.')
+function numericEnv(name: string) {
+    return v.pipe(
+        v.string(`${name} is required`),
+        v.nonEmpty(`${name} is required`),
+        v.transform(Number),
+        v.number(`${name} must be a number`),
+        v.finite(`${name} must be a finite number`),
+    )
 }
 
-const stateBackend = STATE_BACKEND ?? 'memory'
-if (stateBackend !== 'memory' && stateBackend !== 'sqlite') {
-    throw new Error('Invalid env: STATE_BACKEND must be one of "memory", "sqlite".')
+function requiredString(name: string) {
+    return v.pipe(
+        v.string(`${name} is required`),
+        v.nonEmpty(`${name} is required`),
+    )
 }
 
-const adminIds = (ADMIN_IDS ?? '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(s => s.length > 0)
-    .map(Number)
+const adminIdsSchema = v.pipe(
+    v.optional(v.string(), ''),
+    v.transform(value => value
+        .split(',')
+        .map(item => item.trim())
+        .filter(item => item.length > 0)),
+    v.array(v.pipe(
+        v.string(),
+        v.regex(/^[-+]?\d+(?:\.\d+)?$/, 'ADMIN_IDS must be a comma-separated list of numeric user IDs'),
+        v.transform(Number),
+        v.finite('ADMIN_IDS must be a comma-separated list of numeric user IDs'),
+    )),
+)
 
-if (adminIds.some(Number.isNaN)) {
-    throw new Error('Invalid env: ADMIN_IDS must be a comma-separated list of numeric user IDs.')
+const truthyEnvSchema = v.pipe(
+    v.optional(v.string(), ''),
+    v.transform(value => ['true', '1', 'yes'].includes(value.toLowerCase().trim())),
+)
+
+const rawEnvSchema = v.object({
+    API_ID: numericEnv('API_ID'),
+    API_HASH: requiredString('API_HASH'),
+    BOT_TOKEN: requiredString('BOT_TOKEN'),
+    LOG_PEER: numericEnv('LOG_PEER'),
+    ADMIN_IDS: adminIdsSchema,
+    AD_LIST_URL: v.optional(v.string(), 'https://t.me/addlist/UEpWJGzDD6A1Y2I1'),
+    STATE_BACKEND: v.optional(
+        v.picklist(['memory', 'sqlite'], 'STATE_BACKEND must be one of "memory", "sqlite"'),
+        'memory',
+    ),
+    STATE_SQLITE_PATH: v.optional(v.string(), 'bot-data/state.db'),
+    SENTRY_DSN: v.optional(v.string(), ''),
+    SENTRY_ENVIRONMENT: v.optional(v.string()),
+    SENTRY_LOG_LEVEL: v.optional(
+        v.picklist(
+            ['debug', 'info', 'warn', 'error'],
+            'SENTRY_LOG_LEVEL must be one of "debug", "info", "warn", "error"',
+        ),
+        'info',
+    ),
+    SENTRY_SCRUB_PII: truthyEnvSchema,
+    NODE_ENV: v.optional(v.string()),
+})
+
+export interface Env {
+    API_ID: number
+    API_HASH: string
+    BOT_TOKEN: string
+    LOG_PEER: number
+    SENTRY_DSN: string
+    SENTRY_ENVIRONMENT: string
+    SENTRY_LOG_LEVEL: 'debug' | 'info' | 'warn' | 'error'
+    ADMIN_IDS: number[]
+    AD_LIST_URL: string
+    STATE_BACKEND: 'memory' | 'sqlite'
+    STATE_SQLITE_PATH: string
+    SENTRY_SCRUB_PII: boolean
 }
 
-const logLevel = SENTRY_LOG_LEVEL ?? 'info'
-if (logLevel !== 'debug' && logLevel !== 'info' && logLevel !== 'warn' && logLevel !== 'error') {
-    throw new Error('Invalid env: SENTRY_LOG_LEVEL must be one of "debug", "info", "warn", "error".')
+export function decodeEnv(input: Record<string, string | undefined>): Env {
+    const result = v.safeParse(rawEnvSchema, input)
+    if (!result.success) {
+        const issue = result.issues[0]
+        const field = issue.path?.[0]?.key
+        const prefix = typeof field === 'string' ? `${field}: ` : ''
+        throw new Error(`Invalid env: ${prefix}${issue.message}`)
+    }
+
+    const { NODE_ENV, ...parsed } = result.output
+    return {
+        ...parsed,
+        SENTRY_ENVIRONMENT: parsed.SENTRY_ENVIRONMENT ?? (NODE_ENV === 'production' ? 'production' : 'development'),
+    }
 }
 
-const scrubPii = SENTRY_SCRUB_PII !== undefined
-    && ['true', '1', 'yes'].includes(SENTRY_SCRUB_PII.toLowerCase().trim())
-
-export const env = {
-    API_ID: Number(API_ID),
-    API_HASH,
-    BOT_TOKEN,
-    LOG_PEER: Number(LOG_PEER),
-    // Sentry error monitoring. Empty/absent = Sentry is completely disabled
-    // (the local-dev default). Set to a project DSN to enable reporting.
-    SENTRY_DSN: SENTRY_DSN ?? '',
-    // Tag attached to Sentry events. Defaults to production in the built
-    // bundle (NODE_ENV is defined there) and development everywhere else.
-    SENTRY_ENVIRONMENT: SENTRY_ENVIRONMENT ?? (process.env.NODE_ENV === 'production' ? 'production' : 'development'),
-    // Minimum console level forwarded to Sentry Logs. Defaults to info
-    // (debug stays local unless explicitly requested).
-    SENTRY_LOG_LEVEL: logLevel as 'debug' | 'info' | 'warn' | 'error',
-    // Users allowed to run privileged commands (/reload). Empty = disabled.
-    ADMIN_IDS: adminIds,
-    // Ad block appended to verification messages. Unset = default link;
-    // set to an empty string to disable the ad entirely.
-    AD_LIST_URL: AD_LIST_URL ?? 'https://t.me/addlist/UEpWJGzDD6A1Y2I1',
-    // Verification-state storage backend. memory = volatile (default);
-    // sqlite survives restarts (main.ts re-arms timeout observers on boot).
-    STATE_BACKEND: stateBackend,
-    STATE_SQLITE_PATH: STATE_SQLITE_PATH ?? 'bot-data/state.db',
-    SENTRY_SCRUB_PII: scrubPii,
-}
+export const env = decodeEnv(process.env)

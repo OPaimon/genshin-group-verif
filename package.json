@@ -20,7 +20,7 @@
         "res:build": "rescript",
         "res:clean": "rescript clean",
         "res:dev": "rescript watch",
-        "test": "rescript && node --test src/FlowTest.res.mjs && node --import tsx --import ./src/interpreter/testEnv.ts --test build.test.mjs src/flowParallel.test.ts src/sentry.test.ts src/interpreter/bindingConformance.test.ts src/interpreter/interaction.test.ts src/interpreter/messages.test.ts src/interpreter/task.test.ts src/interpreter/ttlMap.test.ts src/interpreter/state/memoryStore.test.ts src/interpreter/state/sqliteStore.test.ts"
+        "test": "rescript && node --test src/FlowTest.res.mjs && node --import tsx --import ./src/interpreter/testEnv.ts --test build.test.mjs src/env.test.ts src/flowParallel.test.ts src/sentry.test.ts src/interpreter/bindingConformance.test.ts src/interpreter/interaction.test.ts src/interpreter/messages.test.ts src/interpreter/quizSource.test.ts src/interpreter/task.test.ts src/interpreter/ttlMap.test.ts src/interpreter/state/memoryStore.test.ts src/interpreter/state/sqliteStore.test.ts"
     },
     "dependencies": {
         "@mtcute/dispatcher": "^0.31.0",
@@ -32,7 +32,8 @@
         "better-sqlite3": "^12.10.0",
         "dotenv-cli": "^11.0.0",
         "rescript": "12.1.0",
-        "tsx": "^4.21.0"
+        "tsx": "^4.21.0",
+        "valibot": "^1.4.2"
     },
     "devDependencies": {
         "@alint-js/cli": "0.6.0",

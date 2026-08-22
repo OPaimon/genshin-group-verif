@@ -12,7 +12,7 @@ A Telegram bot built with **mtcute** (lightweight Telegram client library) for g
 - Session persistence enables stateful bot operations across restarts
 
 ### Environment Management (src/env.ts)
-- Uses **Zod** for runtime schema validation of env vars
+- Uses **Valibot** for runtime schema validation and conversion of env vars
 - Required vars: `API_ID` (number), `API_HASH`, `BOT_TOKEN` (strings)
 - Throws early with detailed error messages if validation fails
 - **Pattern**: Import `{ env }` to access validated config throughout codebase
@@ -83,7 +83,7 @@ pnpm dev
 - **@mtcute/dispatcher**: Message routing and filter matching
 - **@mtcute/node**: Telegram client with node.js transport
 - **tsx**: TypeScript execution without build step
-- **zod**: Schema validation
+- **valibot**: Runtime validation for environment variables and external quiz JSON
 
 ## Project Structure
 - `src/`: TypeScript + ReScript sources (main entry: main.ts)
