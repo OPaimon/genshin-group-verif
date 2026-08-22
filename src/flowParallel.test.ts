@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { Make } from './Flow.res.mjs'
 import { peerKey } from './interpreter/peer.js'
 import { createMemoryStore } from './interpreter/state/memoryStore.js'
-import { bind, nowMs, pure, recoverError } from './interpreter/task.js'
+import { bind, pure, recoverError } from './interpreter/task.js'
 
 const input: start_input = {
     userId: 42,
@@ -24,26 +24,24 @@ test('parallel starts leave one live pending session and clean the replaced chal
     const saved: session[] = []
 
     let pendingReads = 0
-    let releasePendingReads!: () => void
-    const pendingReadsReady = new Promise<void>((resolve) => {
-        releasePendingReads = resolve
-    })
 
-    let releaseSecondSave!: () => void
-    const firstLocationPersisted = new Promise<void>((resolve) => {
-        releaseSecondSave = resolve
-    })
+    const pendingReadsGate = Promise.withResolvers<void>()
+    const pendingReadsReady = pendingReadsGate.promise
+    const releasePendingReads = pendingReadsGate.resolve
 
-    const observerChecks = new Map<string, () => void>()
+    const firstLocationGate = Promise.withResolvers<void>()
+    const firstLocationPersisted = firstLocationGate.promise
+    const releaseSecondSave = firstLocationGate.resolve
+
+    const observerChecks: Array<() => void> = []
 
     const State = {
-        pure,
-        bind,
         Cooldown: {
             check: async () => false,
             apply: async () => {},
         },
         Session: {
+            getById: (id: string) => store.session.getById(id),
             savePending: async (value: session) => {
                 saved.push(value)
                 if (saved.length === 2) await firstLocationPersisted
@@ -65,20 +63,26 @@ test('parallel starts leave one live pending session and clean the replaced chal
                 if (saved[0]?.id === value.id) releaseSecondSave()
                 return live
             },
-            waitAndPeek: (sessionId: string) => new Promise<session | undefined>((resolve) => {
-                observerChecks.set(sessionId, () => {
-                    void store.session.getById(sessionId).then(resolve)
-                })
-            }),
         },
     }
 
-    const Interaction = {
+    let nextId = 0
+    const Runtime = {
         pure,
         bind,
         recoverError,
-        nowMs,
-        logObserverError: async () => {},
+        nowMs: async () => Date.now(),
+        randomUUID: () => `id-${nextId++}`,
+        randomInt: () => 0,
+        sleep: (_delayMs: number) => {
+            const gate = Promise.withResolvers<void>()
+            observerChecks.push(gate.resolve)
+            return gate.promise
+        },
+        detach: (task: () => Promise<void>) => { void task() },
+    }
+
+    const Interaction = {
         presentChallenge: async () => {
             const loc: Message_location<Peer_unknown> = [-100, 1000 + presented.length]
             presented.push(loc)
@@ -99,8 +103,6 @@ test('parallel starts leave one live pending session and clean the replaced chal
     }
 
     const QuizSource = {
-        pure,
-        bind,
         getRandom: async () => ({
             id: 1,
             question: 'Question',
@@ -110,7 +112,7 @@ test('parallel starts leave one live pending session and clean the replaced chal
         reload: async () => ({ TAG: 'Ok' as const, _0: undefined }),
     }
 
-    const Flow = Make(Interaction)(State)(QuizSource)
+    const Flow = Make(Runtime)(Interaction)(State)(QuizSource)
 
     try {
         await Promise.all([
@@ -133,12 +135,14 @@ test('parallel starts leave one live pending session and clean the replaced chal
         }
         assert.equal((await store.session.findByToken(saved[1].correctToken))?.id, saved[1].id)
 
-        observerChecks.get(saved[0].id)?.()
-        await new Promise(resolve => setImmediate(resolve))
+        observerChecks[0]?.()
+        const settled = Promise.withResolvers<void>()
+        setImmediate(settled.resolve)
+        await settled.promise
         assert.deepStrictEqual(decisions, [], 'the replaced observer must become a no-op')
     } finally {
         if (saved[1]) await store.session.claim(saved[1].id)
-        observerChecks.get(saved[1]?.id ?? '')?.()
+        observerChecks[1]?.()
         await store.close()
     }
 })

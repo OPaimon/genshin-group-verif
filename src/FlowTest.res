@@ -87,20 +87,21 @@ describe("startVerification", () => {
   test("happy path — in-group", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    // Quarantine is the first flow operation; observer still precedes challenge.
-    traceLen(9)
+    // Quarantine is first; detached observer sleeps and checks state before challenge.
+    traceLen(10)
     traceNth(0, "restrictUser")
     traceNth(1, "Cooldown.check")
     traceNth(2, "Session.findPending")
     traceNth(3, "Quiz.getRandom")
     traceNth(4, "Session.savePending")
-    traceNth(5, "Session.waitAndPeek")
-    traceNth(6, "presentChallenge")
+    traceNth(5, "Runtime.sleep")
+    traceNth(6, "Session.getById")
+    traceNth(7, "presentChallenge")
     // 用户名与超时时长都来自输入, 不再由解释器另行拉取/硬编码
     traceHas(`name="Lumine"`)
     traceHas("timeout=60s")
-    traceNth(7, "Session.updateLocation")
-    traceNth(8, "logActivity")
+    traceNth(8, "Session.updateLocation")
+    traceNth(9, "logActivity")
     traceHas("kind=Request_start")
 
     // state
@@ -116,6 +117,22 @@ describe("startVerification", () => {
     notRemoved("-100:42")
   })
 
+  test("runtime controls session id, callback tokens, and option order", () => {
+    MockInterpreter.uuidValues := ["token-a", "token-b", "token-c", "token-d", "session-fixed"]
+    MockInterpreter.randomIntValues := [1, 0, 1]
+
+    MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
+
+    let sess = MockInterpreter.State.sessions->Map.get("session-fixed")->Option.getOrThrow
+    equal(sess.id, "session-fixed", ~message="deterministic session id")
+    equal(sess.correctToken, "token-b", ~message="correct token follows original correct option")
+    deepEqual(
+      sess.optionsWithTokens->Array.map(option => (option.optionText, option.token)),
+      [("8", "token-c"), ("9", "token-d"), ("5", "token-a"), ("7", "token-b")],
+      ~message="deterministic shuffled options",
+    )
+  })
+
   test("persists an absolute 60s deadline", () => {
     MockInterpreter.currentTimeMs := 2_000_000.0
 
@@ -123,12 +140,12 @@ describe("startVerification", () => {
 
     let sess = MockInterpreter.State.sessions->Map.values->Iterator.toArray->Array.getUnsafe(0)
     equal(sess.deadlineAt, Some(2_060_000.0), ~message="absolute session deadline")
-    traceHas("Session.waitAndPeek")
+    traceHas("Runtime.sleep")
     traceHas("delay=60000ms")
   })
 
   test("claimed during challenge send — clean obsolete challenge and suppress Request_start", () => {
-    MockInterpreter.returnSessionFromWaitAndPeek := true
+    MockInterpreter.returnSessionFromGetById := true
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
@@ -142,17 +159,18 @@ describe("startVerification", () => {
   test("happy path — join request", () => {
     MockInterpreter.TestFlow.startVerification(defaultInput(Join_request))
 
-    traceLen(8)
+    traceLen(9)
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
     traceNot("restrictUser")
     traceNth(2, "Quiz.getRandom")
     traceNth(3, "Session.savePending")
-    traceNth(4, "Session.waitAndPeek")
-    traceNth(5, "presentChallenge")
+    traceNth(4, "Runtime.sleep")
+    traceNth(5, "Session.getById")
+    traceNth(6, "presentChallenge")
     traceHas("presentChallenge  chat=42")
-    traceNth(6, "Session.updateLocation")
-    traceNth(7, "logActivity")
+    traceNth(7, "Session.updateLocation")
+    traceNth(8, "logActivity")
     traceHas("kind=Request_start")
 
     sessionCount(1)
@@ -215,7 +233,7 @@ describe("startVerification", () => {
 
     traceNot("Quiz.getRandom")
     traceNot("Session.savePending")
-    traceNot("Session.waitAndPeek")
+    traceNot("Runtime.sleep")
     traceNot("presentChallenge")
     // old session fully removed, no new session created
     sessionGone("old-sess-1")
@@ -256,19 +274,20 @@ describe("startVerification", () => {
 
     MockInterpreter.TestFlow.startVerification(defaultInput(In_group))
 
-    traceLen(10)
+    traceLen(11)
     traceNth(0, "restrictUser")
     traceNth(1, "Cooldown.check")
     traceNth(2, "Session.findPending")
     traceNth(3, "Quiz.getRandom")
     traceNth(4, "Session.savePending")
-    traceNth(5, "Session.waitAndPeek")
-    traceNth(6, "presentChallenge")
-    traceNth(7, "Session.claim")
+    traceNth(5, "Runtime.sleep")
+    traceNth(6, "Session.getById")
+    traceNth(7, "presentChallenge")
+    traceNth(8, "Session.claim")
     traceHas("→ won")
-    traceNth(8, "enforceDecision")
+    traceNth(9, "enforceDecision")
     traceHas("decision=Punish_soft")
-    traceNth(9, "logActivity")
+    traceNth(10, "logActivity")
     traceHas("kind=Fail_error")
 
     traceNot("updateStatus")
@@ -310,7 +329,7 @@ describe("startVerification", () => {
     traceHas("decision=Punish_soft")
     traceNot("Cooldown.check")
     traceNot("Session.savePending")
-    traceNot("Session.waitAndPeek")
+    traceNot("Runtime.sleep")
     traceNot("presentChallenge")
     sessionCount(0)
     notRestricted("-100:42")
@@ -331,7 +350,7 @@ describe("startVerification", () => {
     traceNth(4, "Session.savePending")
     traceNth(5, "enforceDecision")
     traceHas("decision=Punish_soft")
-    traceNot("Session.waitAndPeek")
+    traceNot("Runtime.sleep")
     traceNot("presentChallenge")
     sessionCount(0)
     tokenCount(0)
@@ -350,7 +369,7 @@ describe("startVerification", () => {
     traceNth(0, "restrictUser")
     traceHas("Session.savePending")
     traceHas("enforceDecision")
-    traceNot("Session.waitAndPeek")
+    traceNot("Runtime.sleep")
     traceNot("presentChallenge")
     sessionCount(0)
     restricted("-100:42")
@@ -371,7 +390,7 @@ describe("startVerification", () => {
     traceHas("decision=Punish_soft")
     traceHas("ctx=Join_request")
     traceNot("restrictUser")
-    traceNot("Session.waitAndPeek")
+    traceNot("Runtime.sleep")
     traceNot("presentChallenge")
     sessionCount(0)
   })
@@ -381,20 +400,21 @@ describe("startVerification", () => {
 
     MockInterpreter.TestFlow.startVerification(defaultInput(Join_request))
 
-    traceLen(9)
+    traceLen(10)
     traceNth(0, "Cooldown.check")
     traceNth(1, "Session.findPending")
     traceNth(2, "Quiz.getRandom")
     traceNth(3, "Session.savePending")
-    traceNth(4, "Session.waitAndPeek")
-    traceNth(5, "presentChallenge")
+    traceNth(4, "Runtime.sleep")
+    traceNth(5, "Session.getById")
+    traceNth(6, "presentChallenge")
     traceHas("presentChallenge  chat=42")
-    traceNth(6, "Session.claim")
+    traceNth(7, "Session.claim")
     traceHas("→ won")
-    traceNth(7, "enforceDecision")
+    traceNth(8, "enforceDecision")
     traceHas("decision=Punish_soft")
     traceHas("ctx=Join_request")
-    traceNth(8, "logActivity")
+    traceNth(9, "logActivity")
     traceHas("kind=Fail_error")
 
     traceNot("restrictUser")
@@ -604,24 +624,42 @@ describe("handleCallback", () => {
 describe("timeout observer", () => {
   beforeEach(() => MockInterpreter.reset())
 
-  test("contains waitAndPeek failures", () => {
+  test("contains sleep failures", () => {
     let sess = seedSession()
-    MockInterpreter.failWaitAndPeek := true
+    MockInterpreter.failSleep := true
 
     let escaped = try {
       MockInterpreter.TestFlow.armTimeoutObserver(sess)
       false
     } catch {
-    | MockInterpreter.WaitAndPeekFailure => true
+    | MockInterpreter.SleepFailure => true
     }
 
-    ok(escaped == false, ~message="waitAndPeek failure must not escape the detached observer")
+    ok(escaped == false, ~message="sleep failure must not escape the detached observer")
+    traceHas("Observer.error")
+    traceNot("Session.getById")
+  })
+
+  test("contains state lookup failures", () => {
+    let sess = seedSession()
+    MockInterpreter.failSessionGetById := true
+
+    let escaped = try {
+      MockInterpreter.TestFlow.armTimeoutObserver(sess)
+      false
+    } catch {
+    | MockInterpreter.SessionGetByIdFailure => true
+    }
+
+    ok(escaped == false, ~message="getById failure must not escape the detached observer")
+    traceHas("Runtime.sleep")
+    traceHas("Session.getById")
     traceHas("Observer.error")
   })
 
   test("contains claim failures", () => {
     let sess = seedSession()
-    MockInterpreter.returnSessionFromWaitAndPeek := true
+    MockInterpreter.returnSessionFromGetById := true
     MockInterpreter.failSessionClaim := true
 
     let escaped = try {
@@ -642,20 +680,22 @@ describe("timeout observer", () => {
 
     MockInterpreter.TestFlow.armTimeoutObserver(sess)
 
-    traceHas("Session.waitAndPeek")
+    traceNth(0, "Runtime.sleep")
     traceHas("delay=15000ms")
+    traceNth(1, "Session.getById")
   })
 
   test("expired session near the 5-minute TTL edge settles immediately", () => {
     let sess = seedSession()
     MockInterpreter.currentTimeMs := 1_299_999.0
-    MockInterpreter.returnSessionFromWaitAndPeek := true
+    MockInterpreter.returnSessionFromGetById := true
 
     MockInterpreter.TestFlow.armTimeoutObserver(sess)
 
-    traceNth(0, "Session.waitAndPeek")
+    traceNth(0, "Runtime.sleep")
     traceHas("delay=0ms")
-    traceNth(1, "Session.claim")
+    traceNth(1, "Session.getById")
+    traceNth(2, "Session.claim")
     traceHas("→ won")
     traceHas("decision=Punish_soft")
     sessionGone(sess.id)
@@ -665,13 +705,14 @@ describe("timeout observer", () => {
     let sess = seedSession()
     let legacy = {...sess, deadlineAt: None}
     MockInterpreter.State.sessions->Map.set(legacy.id, legacy)
-    MockInterpreter.returnSessionFromWaitAndPeek := true
+    MockInterpreter.returnSessionFromGetById := true
 
     MockInterpreter.TestFlow.armTimeoutObserver(legacy)
 
-    traceNth(0, "Session.waitAndPeek")
+    traceNth(0, "Runtime.sleep")
     traceHas("delay=0ms")
-    traceNth(1, "Session.claim")
+    traceNth(1, "Session.getById")
+    traceNth(2, "Session.claim")
     traceHas("decision=Punish_soft")
     sessionGone(legacy.id)
   })

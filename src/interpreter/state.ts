@@ -28,27 +28,6 @@ export function stateStore(): StateStore {
     return store
 }
 
-/**
- * Deferred observation for timeouts: wait, then peek the session store.
- * If the session was already claimed by the answer callback in the interim,
- * this resolves to `undefined` and the timeout path must no-op.
- * The final arbiter is still `session_claim` — the peek only avoids running
- * the timeout chain in the common (already-handled) case.
- */
-export async function session_waitAndPeek(sessionId: string, delayMs: number): Promise<session | undefined> {
-    await new Promise<void>(resolve => setTimeout(resolve, delayMs))
-
-    const session = await store.session.getById(sessionId)
-
-    if (session) {
-        logger.debug(`[Observer] Session ${sessionId} is still active after ${delayMs}ms. Triggering timeout logic.`)
-    } else {
-        logger.debug(`[Observer] Session ${sessionId} was already handled/cleaned up. Skipping.`)
-    }
-
-    return session
-}
-
 // ── Cooldown ────────────────────────────────────────────────
 
 export async function cooldown_check(chatId: Peer_id<any>, userId: Peer_id<Peer_user>): Promise<boolean> {
@@ -60,6 +39,9 @@ export async function cooldown_apply(chatId: Peer_id<any>, userId: Peer_id<Peer_
 }
 
 // ── Session ─────────────────────────────────────────────────
+export async function session_getById(id: string): Promise<session | undefined> {
+    return store.session.getById(id)
+}
 
 export async function session_savePending(s: session): Promise<session | undefined> {
     try {

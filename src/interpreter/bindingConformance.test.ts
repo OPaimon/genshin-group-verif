@@ -12,11 +12,12 @@ interface Binding {
     moduleFile: string
     boundName: string
     callArgCount: number
+    returnsValue: boolean
 }
 
 const IMPORT_PATTERN = /import \* as (\w+) from "(\.\/interpreter\/[^"\n]+\.js)";/g
 const IMPL_DECLARATION_PATTERN = /function (\w+Impl)\s*\(/g
-const IMPL_WRAPPER_PATTERN = /function (\w+Impl)\(([^)]*)\) \{\s*return (\w+)\.([\w$]+)\(([^;]*)\);\s*\}/g
+const IMPL_WRAPPER_PATTERN = /function (\w+Impl)\s*\(([^)]*)\) \{\s*(return )?(\w+)\.([\w$]+)\(([^;]*)\);\s*\}/g
 
 function parseBindings(source: string): Binding[] {
     const imports = new Map<string, string>()
@@ -30,7 +31,7 @@ function parseBindings(source: string): Binding[] {
 
     const bindings: Binding[] = []
     for (const match of source.matchAll(IMPL_WRAPPER_PATTERN)) {
-        const [, wrapperName, , moduleAlias, boundName, rawArgs] = match
+        const [, wrapperName, , returnKeyword, moduleAlias, boundName, rawArgs] = match
         const moduleFile = imports.get(moduleAlias)
         assert.ok(moduleFile, `${wrapperName} calls unknown namespace ${moduleAlias}`)
 
@@ -38,7 +39,13 @@ function parseBindings(source: string): Binding[] {
         for (const arg of args) {
             assert.match(arg, /^prim\d*$/, `${wrapperName} has unsupported generated call argument: ${arg}`)
         }
-        bindings.push({ wrapperName, moduleFile, boundName, callArgCount: args.length })
+        bindings.push({
+            wrapperName,
+            moduleFile,
+            boundName,
+            callArgCount: args.length,
+            returnsValue: returnKeyword !== undefined,
+        })
     }
 
     const parsedWrappers = new Set(bindings.map(binding => binding.wrapperName))
@@ -57,9 +64,18 @@ test('AppBridge generated Impl wrappers match TypeScript exports and arities', a
     const bindings = parseBindings(source)
     const failures: string[] = []
     const observed = new Set<string>()
+    const voidWrappers: Record<string, true> = { detachImpl: true }
 
     for (const binding of bindings) {
         observed.add(`${binding.moduleFile}:${binding.boundName}`)
+        const isVoidWrapper = voidWrappers[binding.wrapperName] === true
+        if (binding.returnsValue === isVoidWrapper) {
+            failures.push(
+                binding.returnsValue
+                    ? `${binding.wrapperName}: expected a void wrapper but generated code returns its result`
+                    : `${binding.wrapperName}: non-void wrapper does not return its result`,
+            )
+        }
         const moduleUrl = new URL(`..${binding.moduleFile.slice(1)}`, import.meta.url)
         const exports = await import(moduleUrl.href) as Record<string, unknown>
         const bound = exports[binding.boundName]
@@ -81,10 +97,19 @@ test('AppBridge generated Impl wrappers match TypeScript exports and arities', a
         }
     }
 
-    for (const requiredTaskExport of ['pure', 'bind', 'recoverError', 'nowMs']) {
+    for (const requiredRuntimeExport of [
+        'pure',
+        'bind',
+        'recoverError',
+        'nowMs',
+        'randomUUID',
+        'randomInt',
+        'sleep',
+        'detach',
+    ]) {
         assert.ok(
-            observed.has(`./interpreter/task.js:${requiredTaskExport}`),
-            `AppBridge parser did not observe task binding ${requiredTaskExport}`,
+            observed.has(`./interpreter/task.js:${requiredRuntimeExport}`),
+            `AppBridge parser did not observe runtime binding ${requiredRuntimeExport}`,
         )
     }
     assert.deepStrictEqual(failures, [], `AppBridge binding conformance failures:\n${failures.join('\n')}`)

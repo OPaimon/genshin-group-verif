@@ -126,20 +126,24 @@ let allocMsgId = (): Message.id => {
 }
 
 let currentTimeMs: ref<float> = ref(1_000_000.0)
+let uuidValues: ref<array<string>> = ref([])
+let randomIntValues: ref<array<int>> = ref([])
 
 // 测试注入: true 时对应 adapter/state operation 失败。
 let failPresentChallenge: ref<bool> = ref(false)
 exception RestrictUserFailure
 exception SessionSavePendingFailure
 exception CooldownApplyFailure
-exception WaitAndPeekFailure
+exception SleepFailure
+exception SessionGetByIdFailure
 exception SessionClaimFailure
 let failRestrictUser: ref<bool> = ref(false)
 let failEnforceDecision: ref<bool> = ref(false)
 let failSessionSavePending: ref<bool> = ref(false)
 let failCooldownApply: ref<bool> = ref(false)
-let failWaitAndPeek: ref<bool> = ref(false)
-let returnSessionFromWaitAndPeek: ref<bool> = ref(false)
+let failSleep: ref<bool> = ref(false)
+let failSessionGetById: ref<bool> = ref(false)
+let returnSessionFromGetById: ref<bool> = ref(false)
 let failSessionClaim: ref<bool> = ref(false)
 
 // ── Master reset ────────────────────────────────────────────
@@ -152,14 +156,17 @@ let reset = () => {
     {id: 2, question: "「风神」的名字是？", options: ["钟离", "巴巴托斯", "雷电影", "纳西妲"], correctOptionIndex: 1},
   ]
   currentTimeMs := 1_000_000.0
+  uuidValues := ["token-a", "token-b", "token-c", "token-d", "session-1"]
+  randomIntValues := [0, 0, 0]
   nextMsgId := 1000
   failPresentChallenge := false
   failRestrictUser := false
   failEnforceDecision := false
   failSessionSavePending := false
   failCooldownApply := false
-  failWaitAndPeek := false
-  returnSessionFromWaitAndPeek := false
+  failSleep := false
+  failSessionGetById := false
+  returnSessionFromGetById := false
   failSessionClaim := false
 }
 
@@ -167,7 +174,7 @@ let reset = () => {
 // Module implementations
 // ═════════════════════════════════════════════════════════════
 
-module Interaction: InteractionSig.S with type t<'a> = 'a = {
+module Runtime: RuntimeSig.S with type t<'a> = 'a = {
   type t<'a> = 'a
 
   let pure = (x: 'a): 'a => x
@@ -181,11 +188,38 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
 
   let nowMs = () => currentTimeMs.contents
 
-  let logObserverError = error => {
-    let _ = error
-    record("Observer.error")
+  let randomUUID = () => {
+    let value = uuidValues.contents->Array.get(0)->Option.getOrThrow
+    uuidValues := uuidValues.contents->Array.slice(~start=1)
+    value
   }
 
+  let randomInt = (~upperExclusive) => {
+    let value = randomIntValues.contents->Array.get(0)->Option.getOrThrow
+    randomIntValues := randomIntValues.contents->Array.slice(~start=1)
+    if value < 0 || value >= upperExclusive {
+      invalid_arg(`randomInt mock value ${value->Int.toString} outside [0, ${upperExclusive->Int.toString})`)
+    }
+    value
+  }
+
+  let sleep = delayMs => {
+    record(`Runtime.sleep  delay=${delayMs->Float.toString}ms`)
+    if failSleep.contents {
+      throw(SleepFailure)
+    }
+  }
+
+  let detach = task => {
+    recoverError(task, error => {
+      let _ = error
+      record("Observer.error")
+    })
+  }
+}
+
+module Interaction: InteractionSig.S with type t<'a> = 'a = {
+  type t<'a> = 'a
   let presentChallenge = (~chatId, ~userId, ~userFirstName, ~question, ~options, ~timeoutSec) => {
     let optStr = options->Array.map(((text, tok)) => `"${text}"(${tok})`)->Array.join(", ")
     record(
@@ -248,8 +282,6 @@ module Interaction: InteractionSig.S with type t<'a> = 'a = {
 module StateMock: StateSig.S with type t<'a> = 'a = {
   type t<'a> = 'a
 
-  let pure = (x: 'a): 'a => x
-  let bind = (x: 'a, f: 'a => 'b): 'b => f(x)
 
   module Cooldown = {
     let check = (~chatId, ~userId) => {
@@ -270,6 +302,16 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
   }
 
   module Session = {
+    let getById = (sessionId: string) => {
+      let result = returnSessionFromGetById.contents
+        ? State.sessions->Map.get(sessionId)
+        : None
+      record(`Session.getById  id=${sessionId} → ${result->Option.isSome ? "found" : "none"}`)
+      if failSessionGetById.contents {
+        throw(SessionGetByIdFailure)
+      }
+      result
+    }
     let savePending = (session: session) => {
       record(`Session.savePending  id=${session.id}`)
       if failSessionSavePending.contents {
@@ -340,23 +382,12 @@ module StateMock: StateSig.S with type t<'a> = 'a = {
       live
     }
 
-    let waitAndPeek = (~sessionId, ~delayMs) => {
-      record(`Session.waitAndPeek  sessionId=${sessionId} delay=${delayMs->Float.toString}ms`)
-      if failWaitAndPeek.contents {
-        throw(WaitAndPeekFailure)
-      }
-      returnSessionFromWaitAndPeek.contents
-        ? State.sessions->Map.get(sessionId)
-        : None
-    }
   }
 }
 
 module QuizSource: QuizSourceSig.S with type t<'a> = 'a = {
   type t<'a> = 'a
 
-  let pure = (x: 'a): 'a => x
-  let bind = (x: 'a, f: 'a => 'b): 'b => f(x)
 
   let getRandom = () => {
     let qs = QuizBank.quizzes.contents
@@ -379,4 +410,4 @@ module QuizSource: QuizSourceSig.S with type t<'a> = 'a = {
 // Instantiate Flow with mock modules
 // ═══════════════════════════════════════════════════════════
 
-module TestFlow = Flow.Make(Interaction, StateMock, QuizSource)
+module TestFlow = Flow.Make(Runtime, Interaction, StateMock, QuizSource)

@@ -34,24 +34,28 @@ document does not replace that glossary.
 ```
 src/main.ts                 process entry, Telegram event wiring, process crash policy
 src/AppBridge.res           ReScript bridge: instantiates Flow.Make with TS effect implementations
-src/Flow.res                verification state machine (start, callback, timeout, claim, decision)
+src/Flow.res                deterministic verification state machine (start, callback, timeout, claim, decision)
+src/RuntimeSig.res           clock, entropy, sleep, detached-task error policy
 src/Domain.res              domain types shared by ReScript and TypeScript (genType)
 src/interpreter/            effect implementations (the "interpreter")
-  interaction.ts            all Telegram interactions + their error policy
+  task.ts                   Promise runtime, clock, entropy, timer, detached observer policy
+  interaction.ts            Telegram interactions + their error policy
   messages.ts               user-facing text and LOG_PEER audit message formatting
   quizSource.ts             quiz bank load / hot reload from bot-data/quizzes.json
-  state.ts                  state facade: store factory, cooldown, sessions, timeout observers
+  state.ts                  state facade: store factory, cooldown, session persistence
   state/                    memory / sqlite state backends behind one contract
 src/env.ts                  hand-rolled env parsing and validation
 src/sentry.ts               Sentry init, PII scrubbing, capture/flush helpers
 src/logger.ts               single thin logging entry point (console + Sentry sinks)
 ```
 
-The core is deliberately a **pure ReScript state machine** (`Flow.res`) with
-all side effects behind interfaces (`InteractionSig`, `StateSig`,
-`QuizSourceSig`). The TypeScript `interpreter/` modules implement those
-interfaces against mtcute. This is what makes the verification logic testable
-without Telegram (`FlowTest.res` + `MockInterpreter.res`).
+The core is deliberately a **deterministic ReScript state machine** (`Flow.res`)
+with all side effects behind interfaces (`RuntimeSig`, `InteractionSig`,
+`StateSig`, `QuizSourceSig`). `RuntimeSig` owns time, entropy, timer scheduling,
+and detached-observer error policy; `StateSig` owns persistence only. The
+TypeScript `interpreter/` modules implement those interfaces. This makes the
+verification logic testable without Telegram or real time/randomness
+(`FlowTest.res` + `MockInterpreter.res`).
 
 ## 3. Verification behaviour
 
@@ -110,9 +114,10 @@ without Telegram (`FlowTest.res` + `MockInterpreter.res`).
 With the `sqlite` backend, sessions persist across restarts but timeout
 observers are in-process only. Every session stores its original absolute
 60-second deadline. On boot, `main.ts` lists all pending sessions and re-arms
-one observer per session using only the time remaining until that deadline.
-Already-expired sessions and legacy rows without a deadline enter the normal
-claim-first timeout path immediately. Double-arming is harmless because all
+one observer per session. The runtime sleeps only for the remaining duration,
+then the state adapter performs a plain `getById`; a surviving session enters
+the normal claim-first timeout path. Already-expired sessions and legacy rows
+without a deadline use a zero delay. Double-arming is harmless because all
 terminal paths claim, and only one claimer wins.
 
 ## 4. Logging and error monitoring

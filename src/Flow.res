@@ -1,5 +1,4 @@
 open Domain
-open Utils
 
 let messageDeletionDelaySec = 10
 let verificationTimeoutSec = 60
@@ -7,13 +6,14 @@ let verificationTimeoutMs = Int.toFloat(verificationTimeoutSec * 1000)
 let cooldownDurationSec = 60
 
 module Make = (
-  I: InteractionSig.S,
-  S: StateSig.S with type t<'a> = I.t<'a>,
-  Q: QuizSourceSig.S with type t<'a> = I.t<'a>,
+  R: RuntimeSig.S,
+  I: InteractionSig.S with type t<'a> = R.t<'a>,
+  S: StateSig.S with type t<'a> = R.t<'a>,
+  Q: QuizSourceSig.S with type t<'a> = R.t<'a>,
 ) => {
-  let return = I.pure
-  let bind = I.bind
-  let recoverError = I.recoverError
+  let return = R.pure
+  let bind = R.bind
+  let recoverError = R.recoverError
 
   // ── helpers ───────────────────────────────
 
@@ -23,9 +23,20 @@ module Make = (
     correctToken: string,
   }
 
+  let shuffle = (arr: array<'a>): array<'a> => {
+    let shuffled = arr->Array.copy
+    for i in shuffled->Array.length - 1 downto 1 {
+      let j = R.randomInt(~upperExclusive=i + 1)
+      let tmp = Array.getUnsafe(shuffled, i)
+      Array.setUnsafe(shuffled, i, Array.getUnsafe(shuffled, j))
+      Array.setUnsafe(shuffled, j, tmp)
+    }
+    shuffled
+  }
+
   let prepareQuiz = (quiz: quiz): quizWithTokens => {
     let withTokens =
-      quiz.options->Array.map((text): option_with_token => {optionText: text, token: randomUUID()})
+      quiz.options->Array.map((text): option_with_token => {optionText: text, token: R.randomUUID()})
     let correctToken = Array.getUnsafe(withTokens, quiz.correctOptionIndex).token
     let shuffled = withTokens->shuffle
     {question: quiz.question, optionsWithTokens: shuffled, correctToken}
@@ -139,27 +150,24 @@ module Make = (
       }
     )
 
-  // fork: 启动超时观察者, 但不并入调用者的效应链。
-  // 整条链从构造到执行都在 recoverError 内，结构上不能 reject。
+  // observer 生命周期、等待与最终错误策略都由 Runtime adapter 负责。
   let armTimeoutObserver = (session: session) =>
-    recoverError(
-      () =>
-        I.nowMs()->bind(nowMs => {
-          let delayMs = switch session.deadlineAt {
-          | Some(deadlineAt) => Math.max(0.0, deadlineAt -. nowMs)
-          | None => 0.0
+    R.detach(() =>
+      R.nowMs()->bind(nowMs => {
+        let delayMs = switch session.deadlineAt {
+        | Some(deadlineAt) => Math.max(0.0, deadlineAt -. nowMs)
+        | None => 0.0
+        }
+        R.sleep(delayMs)
+        ->bind(() => S.Session.getById(session.id))
+        ->bind(maybeSession =>
+          switch maybeSession {
+          | Some(session) => handleTimeout(session)
+          | None => return()
           }
-          S.Session.waitAndPeek(~sessionId=session.id, ~delayMs)
-          ->bind(maybeSession =>
-            switch maybeSession {
-            | Some(session) => handleTimeout(session)
-            | None => return()
-            }
-          )
-        }),
-      error => I.logObserverError(error),
+        )
+      })
     )
-    ->discard
 
   // ── Start Verification ────────────────────
 
@@ -196,9 +204,9 @@ module Make = (
 
                   | Some(raw) =>
                     let quiz = prepareQuiz(raw)
-                    I.nowMs()->bind(nowMs => {
+                    R.nowMs()->bind(nowMs => {
                       let session: session = {
-                        id: randomUUID(),
+                        id: R.randomUUID(),
                         chatId,
                         userId,
                         correctToken: quiz.correctToken,

@@ -12,6 +12,18 @@ external recoverErrorImpl: (() => promise<'a>, exn => promise<'a>) => promise<'a
 @module("./interpreter/task.js")
 external nowMsImpl: unit => promise<float> = "nowMs"
 
+@module("./interpreter/task.js")
+external randomUUIDImpl: unit => string = "randomUUID"
+
+@module("./interpreter/task.js")
+external randomIntImpl: int => int = "randomInt"
+
+@module("./interpreter/task.js")
+external sleepImpl: float => promise<unit> = "sleep"
+
+@module("./interpreter/task.js")
+external detachImpl: (() => promise<unit>) => unit = "detach"
+
 @module("./interpreter/interaction.js")
 external presentChallengeImpl: (
   Peer.id<'a>,
@@ -43,17 +55,15 @@ external scheduleMessageCleanupImpl: (Message.location<'a>, int) => promise<unit
 @module("./interpreter/interaction.js")
 external restrictUserImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<unit> = "interaction_restrictUser"
 
-@module("./interpreter/interaction.js")
-external logObserverErrorImpl: exn => promise<unit> = "interaction_logObserverError"
-
-@module("./interpreter/state.js")
-external sessionWaitAndPeekImpl: (string, float) => promise<option<session>> = "session_waitAndPeek"
 
 @module("./interpreter/state.js")
 external cooldownCheckImpl: (Peer.id<'a>, Peer.id<Peer.user>) => promise<bool> = "cooldown_check"
 
 @module("./interpreter/state.js")
 external cooldownApplyImpl: (Peer.id<'a>, Peer.id<Peer.user>, int) => promise<unit> = "cooldown_apply"
+
+@module("./interpreter/state.js")
+external sessionGetByIdImpl: string => promise<option<session>> = "session_getById"
 
 @module("./interpreter/state.js")
 external sessionSavePendingImpl: session => promise<option<session>> = "session_savePending"
@@ -76,14 +86,22 @@ external quizGetRandomImpl: unit => promise<option<quiz>> = "quiz_getRandom"
 @module("./interpreter/quizSource.js")
 external quizReloadImpl: unit => promise<result<unit, string>> = "quiz_reload"
 
-module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
+module Runtime: RuntimeSig.S with type t<'a> = promise<'a> = {
   type t<'a> = promise<'a>
 
   let pure = pureImpl
   let bind = bindImpl
   let recoverError = recoverErrorImpl
   let nowMs = nowMsImpl
-  let logObserverError = logObserverErrorImpl
+  let randomUUID = randomUUIDImpl
+  let randomInt = (~upperExclusive) => randomIntImpl(upperExclusive)
+  let sleep = sleepImpl
+  let detach = detachImpl
+}
+
+module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
+  type t<'a> = promise<'a>
+
 
   let presentChallenge = (~chatId, ~userId, ~userFirstName, ~question, ~options, ~timeoutSec) =>
     presentChallengeImpl(chatId, userId, userFirstName, question, options, timeoutSec)
@@ -112,8 +130,6 @@ module Interaction: InteractionSig.S with type t<'a> = promise<'a> = {
 module State: StateSig.S with type t<'a> = promise<'a> = {
   type t<'a> = promise<'a>
 
-  let pure = pureImpl
-  let bind = bindImpl
 
   module Cooldown = {
     let check = (~chatId, ~userId) => cooldownCheckImpl(chatId, userId)
@@ -122,25 +138,22 @@ module State: StateSig.S with type t<'a> = promise<'a> = {
   }
 
   module Session = {
+    let getById = sessionGetByIdImpl
     let savePending = sessionSavePendingImpl
     let findByToken = sessionFindByTokenImpl
     let findPending = (~chatId, ~userId) =>
       sessionFindPendingImpl(chatId, userId)
     let claim = sessionClaimImpl
     let updateLocation = sessionUpdateLocationImpl
-    let waitAndPeek = (~sessionId, ~delayMs) =>
-      sessionWaitAndPeekImpl(sessionId, delayMs)
   }
 }
 
 module QuizSource: QuizSourceSig.S with type t<'a> = promise<'a> = {
   type t<'a> = promise<'a>
 
-  let pure = pureImpl
-  let bind = bindImpl
 
   let getRandom = quizGetRandomImpl
   let reload = quizReloadImpl
 }
 
-module App = Flow.Make(Interaction, State, QuizSource)
+module App = Flow.Make(Runtime, Interaction, State, QuizSource)

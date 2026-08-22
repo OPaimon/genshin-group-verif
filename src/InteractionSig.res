@@ -1,17 +1,6 @@
 module type S = {
 
   type t<'a>
-  let pure: 'a => t<'a>
-  let bind: (t<'a>, 'a => t<'b>) => t<'b>
-  /// 从惰性 effect thunk 中恢复同步异常或异步 rejection。
-  /// thunk 确保 identity mock 也能捕获 effect 构造期间的同步 throw。
-  let recoverError: (() => t<'a>, exn => t<'a>) => t<'a>
-  /// 当前 Unix epoch 毫秒；由解释器提供以保持流程测试确定性。
-  let nowMs: unit => t<float>
-
-
-  /// detached timeout observer 的最后一道日志边界；实现必须永不失败。
-  let logObserverError: exn => t<unit>
 
   /// timeoutSec 会渲染进提示文案 — 由调用方传入实际的超时时长, 保证文案与行为一致
   /// None = 验证题发送失败; 调用方应直接按验证失败裁决

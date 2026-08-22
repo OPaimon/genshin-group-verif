@@ -1,7 +1,5 @@
 module type S = {
   type t<'a>
-  let pure: 'a => t<'a>
-  let bind: (t<'a>, 'a => t<'b>) => t<'b>
 
   module Cooldown: {
     let check: (~chatId: Domain.Peer.id<'a>, ~userId: Domain.Peer.id<Domain.Peer.user>) => t<bool>
@@ -9,6 +7,7 @@ module type S = {
   }
 
   module Session: {
+    let getById: string => t<option<Domain.session>>
     /// 原子占用 pending slot；返回被替换且已失去 lookup/token 可达性的旧会话。
     let savePending: Domain.session => t<option<Domain.session>>
     let findByToken: string => t<option<Domain.session>>
@@ -21,9 +20,5 @@ module type S = {
 
     /// 更新仍存活 session 的 verificationLocation；false 表示已被 claim/过期。
     let updateLocation: (Domain.session, Domain.Message.location<Domain.Peer.unknown>) => t<bool>
-
-    /// 超时观察: 等待 delayMs 后窥视会话是否仍在。None = 已被应答路径处理,
-    /// 超时链应放弃。最终裁决仍由 claim 完成 — 这里只是避免多余的超时链。
-    let waitAndPeek: (~sessionId: string, ~delayMs: float) => t<option<Domain.session>>
   }
 }

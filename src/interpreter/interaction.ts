@@ -222,17 +222,6 @@ export async function interaction_scheduleMessageCleanup(loc: Message_location<a
     }, delaySec * 1000)
 }
 
-/** Last-resort logging for detached timeout observers. Must never reject. */
-export function interaction_logObserverError(error: unknown): Promise<void> {
-    try {
-        logger.error('[Observer] Timeout observer failed:', error)
-    } catch {
-        try {
-            console.error('[Observer] Timeout observer failed; logger also failed')
-        } catch {}
-    }
-    return Promise.resolve()
-}
 /**
  * Quarantine a user in a supergroup until verification succeeds or removal
  * succeeds. This deliberately has no automatic expiry: time must never grant
