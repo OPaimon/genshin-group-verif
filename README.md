@@ -287,3 +287,11 @@ pnpm test
 ```
 
 当前 `pnpm test` 覆盖 Flow 测试与 memory/sqlite 状态后端测试；Redis 测试已随 Redis 后端一起移入 `archive/state-redis/`，不作为默认测试运行。
+
+### SQLite 后端与事件循环
+
+`node:sqlite` 只有同步 API。SQLite 驱动运行在专用 worker 线程上
+（`src/interpreter/state/sqliteWorker.mjs`）：同步事务的原子性保留在 worker 内，
+主线程只 await Promise 回复——busy_timeout（5 秒）等待期间的数据库锁竞争不再阻塞
+整个进程的事件循环。生产构建会把 `sqliteWorker.mjs` 原样拷贝到 `dist/`，
+必须与 `main.mjs` 保持在同一目录。
