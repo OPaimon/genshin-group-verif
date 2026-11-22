@@ -1,12 +1,21 @@
 /**
- * SQLite StateStore — node:sqlite (built-in, no native addon).
+ * SQLite StateStore — node:sqlite (built-in, no native addon), driven from a
+ * dedicated Worker thread.
  *
- * Deliberately NOT better-sqlite3: that addon has no prebuilt binary for
- * current Node and needs a full MSVC toolchain to compile, while node:sqlite
- * (unflagged since Node 22.13 / 23.4) offers the same synchronous API.
- * Synchronous transactions run as one uninterrupted event-loop step, making
- * pending-slot replacement and claims atomic against SQLite and concurrent JS
- * callers.
+ * node:sqlite exposes only a synchronous API, and a synchronous transaction
+ * must run as one uninterrupted event-loop step for the pending-slot
+ * replacement and claim invariants to hold against concurrent JS callers.
+ * Running that driver on the main thread also means a contended database
+ * (busy_timeout = 5000 ms) can block every pending Telegram interaction for
+ * up to 5 s. The worker keeps the synchronous driver — with its atomicity —
+ * but moves it off the main thread: every store method here only awaits a
+ * Promise reply, so a contended SQLite lock delays this backend's callers
+ * instead of freezing the whole process.
+ *
+ * The worker processes its message queue one handler at a time and every
+ * multi-statement operation is a single message containing one synchronous
+ * transaction, so each operation stays atomic inside the worker — exactly as
+ * the previous in-process implementation guaranteed.
  *
  * TTL is an expires_at column: reads filter on it, and a periodic sweep
  * (plus lazy checks) deletes expired rows.
@@ -16,200 +25,111 @@ import type { Message_location, Peer_unknown, session } from '../../Domain.gen.j
 import type { StateStore } from './store.js'
 
 import { mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 
-import { decodeSession, encodeSession, sessionLookupKey } from './store.js'
+/**
+ * The worker is a zero-dependency plain .mjs (node builtins only): a worker
+ * thread does not reliably inherit tsx loader registration, so a .ts worker
+ * would need special execArgv in every entry point. Plain ESM needs none —
+ * dev loads this file directly, and the production build copies it verbatim
+ * into dist/ next to main.mjs (see build.mjs).
+ */
+const WORKER_FILE = join(dirname(fileURLToPath(import.meta.url)), 'sqliteWorker.mjs')
 
-const SWEEP_INTERVAL_MS = 60_000
+interface WorkerRequest {
+    op: string
+    rid: number
+    args?: unknown[]
+}
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS sessions (
-    id         TEXT PRIMARY KEY,
-    lookup_key TEXT NOT NULL,
-    data       TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_lookup ON sessions(lookup_key);
-CREATE TABLE IF NOT EXISTS evicted_sessions (
-    id         TEXT PRIMARY KEY,
-    data       TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS session_tokens (
-    token      TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_tokens_session ON session_tokens(session_id);
-CREATE TABLE IF NOT EXISTS cooldowns (
-    key        TEXT PRIMARY KEY,
-    expires_at INTEGER NOT NULL
-);
-`
+interface WorkerReply {
+    ok: boolean
+    result?: unknown
+    error?: string
+    rid: number
+}
 
 export function createSqliteStore(path: string): StateStore {
     if (path !== ':memory:') {
         mkdirSync(dirname(path), { recursive: true })
     }
-    const db = new DatabaseSync(path)
-    db.exec('PRAGMA busy_timeout = 5000')
-    db.exec('PRAGMA journal_mode = WAL')
-    db.exec(SCHEMA)
 
-    const selectPendingForReplacement = db.prepare(
-        'SELECT id, data FROM sessions WHERE lookup_key = ? AND expires_at > ? ORDER BY rowid DESC',
-    )
-    const insertEvicted = db.prepare(
-        'INSERT OR REPLACE INTO evicted_sessions (id, data, expires_at) VALUES (?, ?, ?)',
-    )
-    const insertSession = db.prepare(
-        'INSERT OR REPLACE INTO sessions (id, lookup_key, data, expires_at) VALUES (?, ?, ?, ?)',
-    )
-    const insertToken = db.prepare(
-        'INSERT OR REPLACE INTO session_tokens (token, session_id, expires_at) VALUES (?, ?, ?)',
-    )
-    const selectById = db.prepare(
-        'SELECT data FROM sessions WHERE id = ? AND expires_at > ?',
-    )
-    const selectByToken = db.prepare(`
-        SELECT s.data AS data FROM session_tokens t
-        JOIN sessions s ON s.id = t.session_id
-        WHERE t.token = ? AND t.expires_at > ? AND s.expires_at > ?
-    `)
-    // Newest wins when two live sessions share a lookup key (rowid is monotonic)
-    const selectPending = db.prepare(
-        'SELECT data FROM sessions WHERE lookup_key = ? AND expires_at > ? ORDER BY rowid DESC LIMIT 1',
-    )
-    const selectAll = db.prepare(
-        'SELECT data FROM sessions WHERE expires_at > ?',
-    )
-    const deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?')
-    const selectEvictedById = db.prepare(
-        'SELECT data FROM evicted_sessions WHERE id = ? AND expires_at > ?',
-    )
-    const deleteEvicted = db.prepare('DELETE FROM evicted_sessions WHERE id = ?')
-    const deleteTokens = db.prepare('DELETE FROM session_tokens WHERE session_id = ?')
-    const updateSession = db.prepare(
-        'UPDATE sessions SET data = ?, expires_at = ? WHERE id = ?',
-    )
-    const updateTokens = db.prepare(
-        'UPDATE session_tokens SET expires_at = ? WHERE session_id = ?',
-    )
-    const insertCooldown = db.prepare(
-        'INSERT OR REPLACE INTO cooldowns (key, expires_at) VALUES (?, ?)',
-    )
-    const selectCooldown = db.prepare(
-        'SELECT 1 FROM cooldowns WHERE key = ? AND expires_at > ?',
-    )
-    const sweepTokens = db.prepare('DELETE FROM session_tokens WHERE expires_at <= ?')
-    const sweepSessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?')
-    const sweepEvicted = db.prepare('DELETE FROM evicted_sessions WHERE expires_at <= ?')
-    const sweepCooldowns = db.prepare('DELETE FROM cooldowns WHERE expires_at <= ?')
+    const worker = new Worker(WORKER_FILE, { workerData: { path } })
 
-    // node:sqlite has no transaction() helper — BEGIN/COMMIT manually. The
-    // whole block is synchronous, so no other JS can interleave with it.
-    const tx = <T>(fn: () => T): T => {
-        db.exec('BEGIN IMMEDIATE')
-        try {
-            const result = fn()
-            db.exec('COMMIT')
-            return result
-        } catch (err) {
-            db.exec('ROLLBACK')
-            throw err
+    let nextRid = 0
+    const pending = new Map<number, { resolve: (value: unknown) => void, reject: (err: Error) => void }>()
+
+    /**
+     * Resolves once the worker announces its schema is ready. The worker's
+     * setup (DatabaseSync open + schema + statement preparation) is
+     * synchronous, so this only bridges the thread-start latency — without
+     * it, an immediate close() could terminate the worker before the schema
+     * exists (observed as `no such table: sessions` in tests).
+     */
+    const ready = new Promise<void>((resolve, reject) => {
+        worker.once('message', (msg: { ready?: boolean }) => {
+            if (msg?.ready === true) resolve()
+        })
+        worker.once('error', reject)
+        worker.once('exit', code => reject(new Error(`sqlite worker exited before ready (code ${code})`)))
+    })
+    ready.catch(() => {}) // no unhandled rejection when the worker dies early
+
+    worker.on('message', (reply: WorkerReply) => {
+        const entry = pending.get(reply.rid)
+        if (entry === undefined) return
+        pending.delete(reply.rid)
+        if (reply.ok) {
+            entry.resolve(reply.result)
+        } else {
+            entry.reject(new Error(reply.error ?? 'sqlite worker op failed'))
         }
+    })
+
+    worker.on('error', (err) => {
+        // Worker-level failure (e.g. the database cannot be opened) rejects
+        // every in-flight request instead of hanging them forever.
+        for (const entry of pending.values()) {
+            entry.reject(err)
+        }
+        pending.clear()
+    })
+
+    // The worker keeps the event loop alive on purpose: the store must stay
+    // usable while there are callers, and close() terminates it. (An unref'd
+    // worker would let the loop resolve while replies are still pending.)
+
+    function call<T>(op: string, ...args: unknown[]): Promise<T> {
+        return ready.then(() => new Promise<T>((resolve, reject) => {
+            const rid = nextRid++
+            pending.set(rid, { resolve: resolve as (value: unknown) => void, reject })
+            const req: WorkerRequest = { op, rid, args }
+            worker.postMessage(req)
+        }))
     }
-
-    const rowData = (row: unknown): string | undefined =>
-        row === undefined ? undefined : (row as { data: string }).data
-
-    const sweepTimer = setInterval(() => {
-        const now = Date.now()
-        sweepTokens.run(now)
-        sweepEvicted.run(now)
-        sweepSessions.run(now)
-        sweepCooldowns.run(now)
-    }, SWEEP_INTERVAL_MS)
-    sweepTimer.unref()
 
     return {
         cooldown: {
-            async check(key) {
-                return selectCooldown.get(key, Date.now()) !== undefined
-            },
-            async apply(key, ttlMs) {
-                insertCooldown.run(key, Date.now() + ttlMs)
-            },
+            check: (key: string) => call<boolean>('cooldown.check', key),
+            apply: (key: string, ttlMs: number) => call<void>('cooldown.apply', key, ttlMs),
         },
         session: {
-            async savePending(s, ttlMs) {
-                return tx(() => {
-                    const now = Date.now()
-                    const expiresAt = now + ttlMs
-                    const replacedRows = selectPendingForReplacement.all(sessionLookupKey(s), now) as Array<{
-                        id: string
-                        data: string
-                    }>
-                    const replaced = replacedRows[0] === undefined ? undefined : decodeSession(replacedRows[0].data)
-
-                    for (const replacedRow of replacedRows) {
-                        deleteTokens.run(replacedRow.id)
-                        deleteSession.run(replacedRow.id)
-                        if (replacedRow.id !== s.id) insertEvicted.run(replacedRow.id, replacedRow.data, expiresAt)
-                    }
-
-                    insertSession.run(s.id, sessionLookupKey(s), encodeSession(s), expiresAt)
-                    for (const opt of s.optionsWithTokens) {
-                        insertToken.run(opt.token, s.id, expiresAt)
-                    }
-                    return replaced
-                })
-            },
-            async getById(id) {
-                const data = rowData(selectById.get(id, Date.now()))
-                return data === undefined ? undefined : decodeSession(data)
-            },
-            async findByToken(token) {
-                const now = Date.now()
-                const data = rowData(selectByToken.get(token, now, now))
-                return data === undefined ? undefined : decodeSession(data)
-            },
-            async findPending(lookupKey) {
-                const data = rowData(selectPending.get(lookupKey, Date.now()))
-                return data === undefined ? undefined : decodeSession(data)
-            },
-            async claim(id) {
-                return tx(() => {
-                    const now = Date.now()
-                    const liveData = rowData(selectById.get(id, now))
-                    const data = liveData ?? rowData(selectEvictedById.get(id, now))
-                    if (data === undefined) return undefined
-                    deleteTokens.run(id)
-                    deleteSession.run(id)
-                    deleteEvicted.run(id)
-                    return decodeSession(data)
-                })
-            },
-            async updateLocation(id, loc: Message_location<Peer_unknown>, ttlMs) {
-                return tx(() => {
-                    const data = rowData(selectById.get(id, Date.now()))
-                    if (data === undefined) return false
-                    const updated: session = { ...decodeSession(data), verificationLocation: loc }
-                    const expiresAt = Date.now() + ttlMs
-                    updateSession.run(encodeSession(updated), expiresAt, id)
-                    updateTokens.run(expiresAt, id)
-                    return true
-                })
-            },
-            async listAll() {
-                const rows = selectAll.all(Date.now()) as Array<{ data: string }>
-                return rows.map(r => decodeSession(r.data))
-            },
+            savePending: (s: session, ttlMs: number) => call<session | undefined>('session.savePending', s, ttlMs),
+            getById: (id: string) => call<session | undefined>('session.getById', id),
+            findByToken: (token: string) => call<session | undefined>('session.findByToken', token),
+            findPending: (lookupKey: string) => call<session | undefined>('session.findPending', lookupKey),
+            claim: (id: string) => call<session | undefined>('session.claim', id),
+            updateLocation: (id: string, loc: Message_location<Peer_unknown>, ttlMs: number) =>
+                call<boolean>('session.updateLocation', id, loc, ttlMs),
+            listAll: () => call<session[]>('session.listAll'),
         },
         async close() {
-            clearInterval(sweepTimer)
-            db.close()
+            // Wait for schema setup so a create→close round trip (tests,
+            // bootstrap) cannot race the worker's startup.
+            await ready.catch(() => {})
+            await worker.terminate()
         },
     }
 }
