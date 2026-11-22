@@ -78,13 +78,25 @@ test('sqlite: a second writer waits for the first connection to release its lock
             worker.once('message', message => message === 'locked' && resolve())
         })
 
+        // While the store's worker thread is blocked inside the native busy
+        // handler, the event loop on the main thread must stay responsive:
+        // a timer scheduled now (probe < holdMs) must fire while the store
+        // call is still awaiting the contended lock.
+        let probeFiredAt: number | undefined
+        const probe = setTimeout(() => { probeFiredAt = performance.now() }, 80)
+
         const startedAt = performance.now()
         await store.cooldown.apply('locked-writer', 10_000)
         const elapsedMs = performance.now() - startedAt
 
+        clearTimeout(probe)
         assert.ok(elapsedMs >= holdMs / 2, `writer returned too early after ${elapsedMs}ms`)
         assert.ok(elapsedMs < 3_000, `writer waited unexpectedly long: ${elapsedMs}ms`)
         assert.equal(await store.cooldown.check('locked-writer'), true)
+        assert.ok(
+            probeFiredAt !== undefined && probeFiredAt < startedAt + elapsedMs,
+            'main-thread event loop must stay responsive while the sqlite lock is contended',
+        )
     } finally {
         await worker.terminate()
         await store.close()
