@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: lint + test + build (node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Version is taken from the "packageManager" field (pnpm@10.17.1)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test (ReScript flow suite + TS unit/contract suites)
+        run: pnpm test
+
+      - name: Build production bundle
+        run: pnpm build
+
+      - name: Verify build artifacts
+        run: |
+          test -f dist/main.mjs
+          test -f dist/sqliteWorker.mjs
+
+  # Optional real-Telegram integration suite. Runs only on pushes to main of
+  # the upstream repository AND when the maintainer has opted in by defining
+  # the repository variable TELEGRAM_INTEGRATION_ENABLED=1 and the
+  # TG_INTEGRATION_* secrets. Forks and PRs never run it: without the secrets
+  # the test file itself also skips, so this job cannot go red spuriously.
+  integration:
+    name: real-Telegram integration (opt-in)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'OPaimon/genshin-group-verif' &&
+      vars.TELEGRAM_INTEGRATION_ENABLED == '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run real-Telegram integration tests
+        env:
+          TG_INTEGRATION_API_ID: ${{ secrets.TG_INTEGRATION_API_ID }}
+          TG_INTEGRATION_API_HASH: ${{ secrets.TG_INTEGRATION_API_HASH }}
+          TG_INTEGRATION_BOT_TOKEN: ${{ secrets.TG_INTEGRATION_BOT_TOKEN }}
+          TG_INTEGRATION_GROUP_ID: ${{ secrets.TG_INTEGRATION_GROUP_ID }}
+          TG_INTEGRATION_TEST_USER_ID: ${{ secrets.TG_INTEGRATION_TEST_USER_ID }}
+          TG_INTEGRATION_STRANGER_CHAT_ID: ${{ secrets.TG_INTEGRATION_STRANGER_CHAT_ID }}
+        run: node --import tsx --test src/telegram.integration.test.ts

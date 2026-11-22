@@ -287,3 +287,30 @@ pnpm test
 ```
 
 当前 `pnpm test` 覆盖 Flow 测试与 memory/sqlite 状态后端测试；Redis 测试已随 Redis 后端一起移入 `archive/state-redis/`，不作为默认测试运行。
+
+### 真实 Telegram API 集成测试（可选）
+
+单元测试通过 `setRuntime` 注入 mock；`src/telegram.integration.test.ts` 则用真实 bot
+凭据打真实 Telegram API，覆盖 mock 覆盖不了的失败类别：权限失败（`restrictUser` 重抛）、
+消息发送失败（`presentChallenge` 返回 `undefined`）、机器人无权访问的聊天（被移出群/未入群）
+下各交互边界的优雅降级。
+
+```bash
+# 需要 TG_INTEGRATION_* 环境变量（见测试文件头注释）；未配置时整个文件干净跳过
+pnpm test:integration
+```
+
+探测目标的安全规则：bot 具备管理员权限时，限制/踢出类探测回落到 chat id 本身（Telegram
+必然以非法成员目标拒绝），不会作用于真实成员；消息发送失败探测使用不可达 peer，不会打扰
+任何第三方。
+
+CI 侧可通过仓库 Variables（`TELEGRAM_INTEGRATION_ENABLED=1`）与 `TG_INTEGRATION_*`
+Secrets 在 main 分支 push 时启用该测试（见 `.github/workflows/ci.yml` 的 opt-in job）。
+
+### SQLite 后端与事件循环
+
+`node:sqlite` 只有同步 API。SQLite 驱动运行在专用 worker 线程上
+（`src/interpreter/state/sqliteWorker.mjs`）：同步事务的原子性保留在 worker 内，
+主线程只 await Promise 回复——busy_timeout（5 秒）等待期间的数据库锁竞争不再阻塞
+整个进程的事件循环。生产构建会把 `sqliteWorker.mjs` 原样拷贝到 `dist/`，
+必须与 `main.mjs` 保持在同一目录。
