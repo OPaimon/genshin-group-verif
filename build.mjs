@@ -65,6 +65,15 @@ const result = await esbuild.build({
     },
 })
 
+// The SQLite state backend runs node:sqlite on a dedicated worker thread
+// (keeps the synchronous driver's atomicity off the main event loop). The
+// worker is a zero-dependency plain .mjs — copy it verbatim next to the
+// entry point so the Worker path resolves at runtime.
+cpSync(
+    resolve(root, 'src/interpreter/state/sqliteWorker.mjs'),
+    resolve(dist, 'sqliteWorker.mjs'),
+)
+
 // ── 3. Copy optional runtime data ─────────────────────────────
 const quizSrc = resolve(root, 'bot-data/quizzes.json')
 const quizDst = resolve(dist, 'bot-data/quizzes.json')
@@ -93,5 +102,7 @@ function kb(f) {
 console.log('\n✅ Build complete → dist/')
 console.log(`   main.mjs      ${kb(resolve(dist, 'main.mjs'))}`)
 console.log(`   main.mjs.map  ${kb(resolve(dist, 'main.mjs.map'))}`)
+console.log(`   sqliteWorker.mjs ${kb(resolve(dist, 'sqliteWorker.mjs'))}`)
 console.log(`   quizzes.json  ${quizCopied ? '✓' : 'skipped (provide at runtime)'}`)
 console.log('\n   Run:  node --enable-source-maps dist/main.mjs')
+console.log('         (dist/sqliteWorker.mjs must stay next to dist/main.mjs)')
